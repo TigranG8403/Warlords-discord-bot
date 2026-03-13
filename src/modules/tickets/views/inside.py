@@ -1,135 +1,111 @@
 from __future__ import annotations
 
-import asyncio
-import logging
-from io import BytesIO
-
 import discord
-from discord.ui import View
+from discord.ui import Button, Modal, TextInput, View
 
-from ..config import get_msk_time
+from core.discord_interactions import safe_response_send_message, safe_response_send_modal
+
 from ..service import TicketService
 
-logger = logging.getLogger(__name__)
+
+async def _safe_send_message(interaction: discord.Interaction, message: str) -> bool:
+    return await safe_response_send_message(interaction, message, ephemeral=True)
 
 
-class TicketInsideView(View):
+async def _safe_send_modal(interaction: discord.Interaction, modal: Modal) -> bool:
+    return await safe_response_send_modal(interaction, modal)
+
+
+class CloseReasonModal(Modal):
+    def __init__(self, service: TicketService):
+        super().__init__(title="Закрытие тикета")
+        self.service = service
+        self.reason = TextInput(
+            label="Причина закрытия",
+            placeholder="Например: вопрос решен / заявка обработана / недостаточно данных",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        reason = self.reason.value.strip()
+        if not reason:
+            await _safe_send_message(interaction, "❌ Укажите причину закрытия тикета.")
+            return
+
+        await self.service.close_ticket(interaction, reason)
+
+
+class TicketControlView(View):
     def __init__(self, service: TicketService):
         super().__init__(timeout=None)
         self.service = service
 
-    @discord.ui.button(
-        label="Закрыть обращение",
-        style=discord.ButtonStyle.danger,
-        emoji="🔐",
-        custom_id="close_ticket",
-    )
-    async def close_ticket_button(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        embed_close = discord.Embed(
-            description="⚠️ Вы уверены, что хотите закрыть обращение?",
-            color=self.service.settings.embed_color,
+        call_staff_button = Button(
+            label="Позвать staff",
+            style=discord.ButtonStyle.primary,
+            emoji="🔔",
+            custom_id="ticket_call_staff",
+            row=0,
         )
-        await interaction.response.send_message(
-            embed=embed_close,
-            view=ConfirmCloseView(self.service),
-            ephemeral=True,
+        call_staff_button.callback = self._call_staff
+        self.add_item(call_staff_button)
+
+        claim_button = Button(
+            label="Взять в работу",
+            style=discord.ButtonStyle.secondary,
+            emoji="🛠️",
+            custom_id="ticket_claim",
+            row=0,
         )
+        claim_button.callback = self._claim_ticket
+        self.add_item(claim_button)
 
-    @discord.ui.button(
-        label="Позвать на помощь",
-        style=discord.ButtonStyle.primary,
-        emoji="🔔",
-        custom_id="call_staff",
-    )
-    async def call_staff_button(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        if interaction.channel is None:
-            await interaction.response.send_message("❌ Канал обращения недоступен.", ephemeral=True)
-            return
-
-        embed_call = discord.Embed(
-            description=f"🔔 {interaction.user.mention} позвал(-а) на помощь.",
-            color=self.service.settings.embed_color,
+        waiting_button = Button(
+            label="Ожидаем игрока",
+            style=discord.ButtonStyle.secondary,
+            emoji="⌛",
+            custom_id="ticket_waiting_user",
+            row=1,
         )
+        waiting_button.callback = self._mark_waiting_user
+        self.add_item(waiting_button)
 
-        ping_message = await interaction.channel.send(f"<@&{self.service.settings.support_role_id}>")
-        staff_message = await interaction.channel.send(embed=embed_call)
-        await interaction.response.send_message("✅ Помощь вызвана!", ephemeral=True)
-
-        await asyncio.sleep(20)
-        try:
-            await ping_message.delete()
-            await staff_message.delete()
-        except discord.Forbidden as error:
-            logger.warning("Не удалось удалить сообщения вызова помощи в канале %s: %s", interaction.channel.id, error)
-        except discord.HTTPException as error:
-            logger.warning("Ошибка Discord API при удалении сообщений вызова помощи в канале %s: %s", interaction.channel.id, error)
-
-
-class ConfirmCloseView(View):
-    def __init__(self, service: TicketService):
-        super().__init__(timeout=60)
-        self.service = service
-
-    @discord.ui.button(label="Да", style=discord.ButtonStyle.success, custom_id="close_yes")
-    async def close_yes_button(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        if not await self.service.can_close_ticket(interaction):
-            await interaction.response.send_message("❌ У вас нет прав для закрытия этого обращения.", ephemeral=True)
-            return
-
-        channel = interaction.channel
-        if channel is None or not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message("❌ Канал обращения недоступен.", ephemeral=True)
-            return
-
-        if interaction.guild is None:
-            await interaction.response.send_message("❌ Действие доступно только на сервере.", ephemeral=True)
-            return
-
-        logs_channel = interaction.guild.get_channel(self.service.settings.log_channel_id)
-        ticket_creator = self.service.resolve_ticket_creator(channel)
-
-        if not ticket_creator:
-            await interaction.response.send_message("⚠️ Не удалось определить создателя обращения.", ephemeral=True)
-            return
-
-        transcript_content = await self.service.create_transcript(channel, ticket_creator)
-        transcript_file = self.service.make_transcript_file(transcript_content, channel.name)
-
-        embed_logs = discord.Embed(
-            title="Обращения",
-            description="",
-            timestamp=get_msk_time(),
-            color=self.service.settings.embed_color,
+        close_button = Button(
+            label="Закрыть тикет",
+            style=discord.ButtonStyle.danger,
+            emoji="🔒",
+            custom_id="ticket_close",
+            row=1,
         )
-        embed_logs.add_field(name="Обращение", value=f"{channel.name}", inline=True)
-        embed_logs.add_field(name="Закрыто", value=f"{interaction.user.mention}", inline=False)
-        embed_logs.add_field(name="Транскрипт", value="Прикреплен выше", inline=False)
-        embed_logs.set_footer(text="МСК (UTC+3)")
+        close_button.callback = self._open_close_modal
+        self.add_item(close_button)
 
-        if logs_channel:
-            await logs_channel.send(embed=embed_logs, file=transcript_file)
+    async def _call_staff(self, interaction: discord.Interaction) -> None:
+        await self.service.call_staff(interaction)
 
-        try:
-            transcript_bytes_dm = BytesIO(transcript_content.encode("utf-8"))
-            dm_embed = discord.Embed(
-                title="Транскрипт обращения",
-                description=f"Вот транскрипт Вашего обращения **{channel.name}**, которое было закрыто.",
-                color=self.service.settings.embed_color,
-                timestamp=get_msk_time(),
-            )
-            dm_embed.add_field(name="Обращение", value=channel.name, inline=True)
-            dm_embed.add_field(name="Закрыто", value=interaction.user.display_name, inline=True)
-            dm_embed.set_footer(text="До новых встреч!")
+    async def _claim_ticket(self, interaction: discord.Interaction) -> None:
+        await self.service.claim_ticket(interaction)
 
-            await ticket_creator.send(
-                embed=dm_embed,
-                file=discord.File(transcript_bytes_dm, filename=f"transcript_{channel.name}.txt"),
-            )
-        except discord.Forbidden:
-            if logs_channel:
-                await logs_channel.send(
-                    f"⚠️ Не удалось отправить транскрипт пользователю {ticket_creator.mention} (личные сообщения закрыты)"
-                )
+    async def _mark_waiting_user(self, interaction: discord.Interaction) -> None:
+        await self.service.mark_waiting_user(interaction)
 
-        self.service.ticket_creators.pop(channel.id, None)
-        await channel.delete()
+    async def _open_close_modal(self, interaction: discord.Interaction) -> None:
+        record = None
+        if isinstance(interaction.channel, discord.TextChannel):
+            record = self.service.repository.get_by_channel_id(interaction.channel.id)
+
+        if record is None:
+            await _safe_send_message(interaction, "⚠️ Для этого канала не найден тикет.")
+            return
+
+        if not isinstance(interaction.user, discord.Member):
+            await _safe_send_message(interaction, "❌ Не удалось определить участника сервера.")
+            return
+
+        if not self.service._can_close_ticket(interaction.user, record):
+            await _safe_send_message(interaction, "❌ У вас нет прав для закрытия этого тикета.")
+            return
+
+        await _safe_send_modal(interaction, CloseReasonModal(self.service))
