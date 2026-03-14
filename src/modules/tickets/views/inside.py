@@ -104,7 +104,10 @@ class TicketControlView(View):
             await _safe_send_message(interaction, "❌ Не удалось определить участника сервера.")
             return
 
-        if not self.service._can_close_ticket(interaction.user, record):
+        guild = getattr(interaction, "guild", None)
+        guild_settings = self.service.get_guild_settings(guild.id) if guild is not None else None
+
+        if not self.service._can_close_ticket(interaction.user, record, guild_settings):
             await _safe_send_message(interaction, "❌ У вас нет прав для закрытия этого тикета.")
             return
 
