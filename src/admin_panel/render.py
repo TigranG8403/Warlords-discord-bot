@@ -17,6 +17,25 @@ class FlashMessage:
 class LoginPageData:
     title: str
     error: str | None = None
+    discord_login_url: str | None = None
+    password_enabled: bool = False
+
+
+@dataclass(frozen=True)
+class CurrentUserView:
+    user_id: str
+    display_name: str
+    username: str
+    avatar_url: str | None
+
+
+@dataclass(frozen=True)
+class AllowedUserView:
+    user_id: str
+    display_name: str
+    username: str
+    avatar_url: str | None
+    removable: bool = True
 
 
 @dataclass(frozen=True)
@@ -28,6 +47,9 @@ class DashboardPageData:
     tracking_status: str
     logs: str
     flash: FlashMessage | None
+    current_user: CurrentUserView | None
+    allowed_users: tuple[AllowedUserView, ...]
+    discord_auth_enabled: bool
 
 
 DASHBOARD_REFRESH_SECONDS = 240
@@ -161,6 +183,46 @@ LOGIN_STYLES = """
       box-shadow: 0 12px 30px rgba(208, 161, 95, 0.2);
       filter: brightness(1.03);
     }
+    .login-actions {
+      display: grid;
+      gap: 14px;
+    }
+    .discord-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      border-radius: 12px;
+      padding: 14px 16px;
+      text-decoration: none;
+      font-weight: 700;
+      color: #f6f7fb;
+      background: linear-gradient(180deg, #7389da, #5865f2);
+      transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+    }
+    .discord-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 30px rgba(88, 101, 242, 0.24);
+      filter: brightness(1.03);
+    }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    .divider::before,
+    .divider::after {
+      content: "";
+      height: 1px;
+      flex: 1;
+      background: rgba(208, 161, 95, 0.2);
+    }
     .flash {
       margin-bottom: 16px;
       border-radius: 12px;
@@ -292,6 +354,8 @@ DASHBOARD_STYLES = """
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
     }
     .hero-actions a,
     .hero-actions button {
@@ -312,6 +376,61 @@ DASHBOARD_STYLES = """
       background: rgba(209, 163, 96, 0.14);
     }
     .hero-actions form { margin: 0; }
+    .user-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 10px 8px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(206, 165, 104, 0.22);
+      background: rgba(14, 10, 8, 0.7);
+      min-width: 0;
+      max-width: min(100%, 320px);
+    }
+    .avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      object-fit: cover;
+      display: block;
+      flex: 0 0 auto;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .avatar-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      background: linear-gradient(180deg, rgba(209, 163, 96, 0.26), rgba(77, 55, 29, 0.42));
+      color: #fff4e0;
+      font-size: 15px;
+      font-weight: 700;
+      border: 1px solid rgba(206, 165, 104, 0.2);
+    }
+    .user-meta {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .user-meta strong,
+    .user-meta span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .user-meta strong {
+      font-size: 14px;
+      color: var(--text);
+    }
+    .user-meta span {
+      font-size: 12px;
+      color: var(--muted);
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -434,6 +553,96 @@ DASHBOARD_STYLES = """
       margin: 14px 0 0;
       color: var(--muted);
       line-height: 1.5;
+    }
+    .access-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .access-form {
+      display: grid;
+      gap: 12px;
+    }
+    .access-form label {
+      display: block;
+      color: var(--muted);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .access-form input {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      background: rgba(10, 8, 6, 0.82);
+      color: var(--text);
+      padding: 13px 14px;
+      font: inherit;
+    }
+    .access-form input:focus {
+      outline: none;
+      border-color: rgba(206, 165, 104, 0.32);
+      box-shadow: 0 0 0 3px rgba(206, 165, 104, 0.08);
+    }
+    .access-list {
+      display: grid;
+      gap: 12px;
+    }
+    .access-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(9, 7, 6, 0.48);
+    }
+    .access-item-user {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .access-item-meta {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .access-item-meta strong,
+    .access-item-meta span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .access-item-meta strong {
+      font-size: 14px;
+      color: var(--text);
+    }
+    .access-item-meta span {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .inline-button {
+      width: auto;
+      min-width: 120px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(206, 165, 104, 0.16);
+      background: rgba(209, 163, 96, 0.08);
+      color: #f0debe;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
     .switcher {
       display: grid;
@@ -630,6 +839,7 @@ DASHBOARD_STYLES = """
       .hero { padding: 18px; }
       .card { padding: 16px; }
       dl { grid-template-columns: 1fr; }
+      .access-grid { grid-template-columns: 1fr; }
       .switcher { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -770,6 +980,26 @@ def render_login_page(data: LoginPageData) -> str:
     if data.error:
         error_block = f'<div class="flash flash-error">{html.escape(data.error)}</div>'
 
+    discord_block = ""
+    if data.discord_login_url:
+        discord_block = (
+            '<div class="login-actions">'
+            f'<a class="discord-button" href="{html.escape(data.discord_login_url)}">Continue with Discord</a>'
+            "</div>"
+        )
+
+    password_block = ""
+    if data.password_enabled:
+        divider = '<div class="divider">or</div>' if discord_block else ""
+        password_block = (
+            f"{divider}"
+            '<form method="post" action="/login">'
+            '<label for="password">Panel password</label>'
+            '<input id="password" name="password" type="password" autocomplete="current-password" required>'
+            '<button type="submit">Sign in</button>'
+            "</form>"
+        )
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -781,13 +1011,10 @@ def render_login_page(data: LoginPageData) -> str:
 <body>
   <main class="panel">
     <h1>{html.escape(data.title)}</h1>
-    <p>Local control panel for the bot. Access is available only through the SSH tunnel and the panel password.</p>
+    <p>Control panel for the bot. Sign in with Discord to open the dashboard and manage access for other admins.</p>
     {error_block}
-    <form method="post" action="/login">
-      <label for="password">Panel password</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-      <button type="submit">Sign in</button>
-    </form>
+    {discord_block}
+    {password_block}
   </main>
 </body>
 </html>"""
@@ -811,6 +1038,69 @@ def render_dashboard_page(data: DashboardPageData) -> str:
             "</section>"
         )
 
+    user_chip = ""
+    if data.current_user is not None:
+        user_chip = (
+            '<div class="user-chip">'
+            f"{render_avatar(data.current_user.display_name, data.current_user.avatar_url)}"
+            '<div class="user-meta">'
+            f"<strong>{html.escape(data.current_user.display_name)}</strong>"
+            f"<span>{html.escape(data.current_user.user_id)}</span>"
+            "</div>"
+            "</div>"
+        )
+
+    access_section = ""
+    if data.discord_auth_enabled:
+        items: list[str] = []
+        for allowed_user in data.allowed_users:
+            remove_control = (
+                '<span class="badge">Protected</span>'
+                if not allowed_user.removable
+                else (
+                    '<form method="post" action="/action">'
+                    f'<input type="hidden" name="csrf_token" value="{html.escape(data.csrf_token)}">'
+                    '<input type="hidden" name="action" value="remove_allowed_user">'
+                    f'<input type="hidden" name="target_user_id" value="{html.escape(allowed_user.user_id)}">'
+                    '<button type="submit" class="secondary inline-button">Remove</button>'
+                    "</form>"
+                )
+            )
+            display_name = allowed_user.display_name or allowed_user.username or "Discord user"
+            secondary = allowed_user.username if allowed_user.username and allowed_user.username != display_name else allowed_user.user_id
+            items.append(
+                '<div class="access-item">'
+                '<div class="access-item-user">'
+                f"{render_avatar(display_name, allowed_user.avatar_url)}"
+                '<div class="access-item-meta">'
+                f"<strong>{html.escape(display_name)}</strong>"
+                f"<span>{html.escape(secondary)}</span>"
+                "</div>"
+                "</div>"
+                f"{remove_control}"
+                "</div>"
+            )
+        access_section = f"""
+
+    <section class="card" style="margin-top: 16px;">
+      <h2>Panel Access</h2>
+      <div class="access-grid">
+        <form method="post" action="/action" class="access-form">
+          <input type="hidden" name="csrf_token" value="{html.escape(data.csrf_token)}">
+          <input type="hidden" name="action" value="allow_user">
+          <div>
+            <label for="discord_user_id">Discord user ID</label>
+            <input id="discord_user_id" name="discord_user_id" type="text" inputmode="numeric" pattern="[0-9]+" placeholder="1034533546863382649" required>
+          </div>
+          <button type="submit">Grant access</button>
+          <p class="hint">Add the Discord user IDs that should be allowed to open this panel.</p>
+        </form>
+        <div class="access-list">
+          {''.join(items) or '<p class="hint">No allowed Discord users yet.</p>'}
+        </div>
+      </div>
+    </section>"""
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -829,6 +1119,7 @@ def render_dashboard_page(data: DashboardPageData) -> str:
         <p>{html.escape(HERO_DESCRIPTION)}</p>
       </div>
       <div class="hero-actions">
+        {user_chip}
         <a href="/">Refresh view</a>
         <form method="post" action="/logout">
           <button type="submit">Sign out</button>
@@ -925,6 +1216,7 @@ def render_dashboard_page(data: DashboardPageData) -> str:
     </section>
 
     {flash_block}
+    {access_section}
 
     <section class="card log-card">
       <h2>Recent Logs</h2>
@@ -971,3 +1263,10 @@ def build_branch_picker(current_branch: str, branches: tuple[str, ...]) -> str:
         f'            <div class="branch-picker__menu" data-branch-menu role="listbox">{"".join(options)}</div>\n'
         '          </div>'
     )
+
+
+def render_avatar(label: str, avatar_url: str | None) -> str:
+    if avatar_url:
+        return f'<img class="avatar" src="{html.escape(avatar_url)}" alt="{html.escape(label)} avatar">'
+    initial = (label[:1] or "?").upper()
+    return f'<span class="avatar-fallback" aria-hidden="true">{html.escape(initial)}</span>'

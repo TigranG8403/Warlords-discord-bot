@@ -2,3 +2,4 @@ __pycache__/
 *.py[cod]
 data/*.sqlite3
 data/*.json
+SERVER_OPERATIONS.md

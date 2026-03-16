@@ -11,18 +11,39 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 try:
+    from .access_store import AllowedUserStore
+    from .discord_auth import DiscordIdentity, DiscordOAuthConfig, build_authorize_url, exchange_code, fetch_identity
     from .git_ops import GitRepository, GitSnapshot, format_tracking_status
-    from .render import DashboardPageData, FlashMessage, LoginPageData, render_dashboard_page, render_login_page
+    from .render import (
+        AllowedUserView,
+        CurrentUserView,
+        DashboardPageData,
+        FlashMessage,
+        LoginPageData,
+        render_dashboard_page,
+        render_login_page,
+    )
 except ImportError:
+    from admin_panel.access_store import AllowedUserStore
+    from admin_panel.discord_auth import DiscordIdentity, DiscordOAuthConfig, build_authorize_url, exchange_code, fetch_identity
     from admin_panel.git_ops import GitRepository, GitSnapshot, format_tracking_status
-    from admin_panel.render import DashboardPageData, FlashMessage, LoginPageData, render_dashboard_page, render_login_page
+    from admin_panel.render import (
+        AllowedUserView,
+        CurrentUserView,
+        DashboardPageData,
+        FlashMessage,
+        LoginPageData,
+        render_dashboard_page,
+        render_login_page,
+    )
 
 
 SESSION_COOKIE_NAME = "warlords_panel_session"
 SESSION_TTL_SECONDS = 8 * 60 * 60
+OAUTH_STATE_TTL_SECONDS = 10 * 60
 DEFAULT_LOG_LINES = 40
 DEFAULT_PANEL_HOST = "127.0.0.1"
 DEFAULT_PANEL_PORT = 8788
@@ -34,18 +55,26 @@ OUTPUT_LIMIT = 24_000
 class PanelConfig:
     host: str
     port: int
-    password: str
+    password: str | None
+    secure_cookie: bool
     service_name: str
     app_dir: str
     git_remote: str
     app_user: str
     log_lines: int
+    allowed_users_file: str
+    protected_discord_ids: tuple[str, ...]
+    discord_oauth: DiscordOAuthConfig | None
 
 
 @dataclass
 class SessionData:
     csrf_token: str
     expires_at: float
+    user_id: str | None = None
+    display_name: str = ""
+    username: str = ""
+    avatar_url: str | None = None
     flash_level: str | None = None
     flash_title: str | None = None
     flash_output: str | None = None
@@ -64,11 +93,22 @@ class SessionStore:
         self._lock = threading.Lock()
         self._sessions: dict[str, SessionData] = {}
 
-    def create(self) -> tuple[str, SessionData]:
+    def create(
+        self,
+        *,
+        user_id: str | None = None,
+        display_name: str = "",
+        username: str = "",
+        avatar_url: str | None = None,
+    ) -> tuple[str, SessionData]:
         session_id = secrets.token_urlsafe(32)
         session = SessionData(
             csrf_token=secrets.token_urlsafe(24),
             expires_at=self._time_func() + self._ttl_seconds,
+            user_id=user_id,
+            display_name=display_name,
+            username=username,
+            avatar_url=avatar_url,
         )
         with self._lock:
             self._purge_locked()
@@ -121,20 +161,73 @@ class SessionStore:
             self._sessions.pop(session_id, None)
 
 
+class ExpiringTokenStore:
+    def __init__(self, *, ttl_seconds: int, time_func=time.time) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._time_func = time_func
+        self._lock = threading.Lock()
+        self._tokens: dict[str, float] = {}
+
+    def create(self) -> str:
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._purge_locked()
+            self._tokens[token] = self._time_func() + self._ttl_seconds
+        return token
+
+    def consume(self, token: str) -> bool:
+        if not token:
+            return False
+        with self._lock:
+            self._purge_locked()
+            expires_at = self._tokens.pop(token, None)
+            return expires_at is not None and expires_at > self._time_func()
+
+    def _purge_locked(self) -> None:
+        now = self._time_func()
+        expired = [token for token, expires_at in self._tokens.items() if expires_at <= now]
+        for token in expired:
+            self._tokens.pop(token, None)
+
+
 def load_config() -> PanelConfig:
-    password = os.getenv("PANEL_PASSWORD", "").strip()
-    if not password:
-        raise RuntimeError("PANEL_PASSWORD is required for the admin panel.")
+    app_dir = os.getenv("BOT_APP_DIR", "/opt/warlords-bot").strip() or "/opt/warlords-bot"
+    password = os.getenv("PANEL_PASSWORD", "").strip() or None
+    discord_client_id = os.getenv("PANEL_DISCORD_CLIENT_ID", "").strip()
+    discord_client_secret = os.getenv("PANEL_DISCORD_CLIENT_SECRET", "").strip()
+    discord_redirect_uri = os.getenv("PANEL_DISCORD_REDIRECT_URI", "").strip()
+
+    discord_values = [discord_client_id, discord_client_secret, discord_redirect_uri]
+    if any(discord_values) and not all(discord_values):
+        raise RuntimeError("PANEL_DISCORD_CLIENT_ID, PANEL_DISCORD_CLIENT_SECRET, and PANEL_DISCORD_REDIRECT_URI must be configured together.")
+
+    discord_oauth = None
+    if all(discord_values):
+        discord_oauth = DiscordOAuthConfig(
+            client_id=discord_client_id,
+            client_secret=discord_client_secret,
+            redirect_uri=discord_redirect_uri,
+        )
+
+    if password is None and discord_oauth is None:
+        raise RuntimeError("Configure PANEL_PASSWORD, Discord OAuth, or both for the admin panel.")
+
+    protected_ids = tuple(parse_csv_env("PANEL_INITIAL_ALLOWED_DISCORD_IDS"))
 
     return PanelConfig(
         host=os.getenv("PANEL_HOST", DEFAULT_PANEL_HOST).strip() or DEFAULT_PANEL_HOST,
         port=parse_int_env("PANEL_PORT", DEFAULT_PANEL_PORT),
         password=password,
+        secure_cookie=parse_bool_env("PANEL_SECURE_COOKIE", False),
         service_name=os.getenv("BOT_SERVICE_NAME", "warlords-bot").strip() or "warlords-bot",
-        app_dir=os.getenv("BOT_APP_DIR", "/opt/warlords-bot").strip() or "/opt/warlords-bot",
+        app_dir=app_dir,
         git_remote=os.getenv("BOT_GIT_REMOTE", DEFAULT_GIT_REMOTE).strip() or DEFAULT_GIT_REMOTE,
         app_user=os.getenv("BOT_APP_USER", "warlords").strip() or "warlords",
         log_lines=parse_int_env("BOT_LOG_LINES", DEFAULT_LOG_LINES),
+        allowed_users_file=os.getenv("PANEL_ALLOWED_USERS_FILE", f"{app_dir}/data/panel_allowed_users.json").strip()
+        or f"{app_dir}/data/panel_allowed_users.json",
+        protected_discord_ids=protected_ids,
+        discord_oauth=discord_oauth,
     )
 
 
@@ -143,6 +236,18 @@ def parse_int_env(name: str, default: int) -> int:
     if not raw_value:
         return default
     return int(raw_value)
+
+
+def parse_bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if not raw_value:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_csv_env(name: str) -> list[str]:
+    raw_value = os.getenv(name, "")
+    return [value.strip() for value in raw_value.split(",") if value.strip()]
 
 
 def trim_output(output: str, limit: int = OUTPUT_LIMIT) -> str:
@@ -174,6 +279,8 @@ class PanelServer(ThreadingHTTPServer):
         super().__init__(server_address, request_handler_class)
         self.config = config
         self.sessions = SessionStore()
+        self.oauth_states = ExpiringTokenStore(ttl_seconds=OAUTH_STATE_TTL_SECONDS)
+        self.allowed_users = AllowedUserStore(Path(self.config.allowed_users_file), protected_ids=set(self.config.protected_discord_ids))
         self.repo = GitRepository(
             self.run,
             app_dir=self.config.app_dir,
@@ -296,19 +403,29 @@ class PanelHandler(BaseHTTPRequestHandler):
     server: PanelServer
 
     def do_GET(self) -> None:
-        if self.path == "/healthz":
+        path, query = self._request_parts()
+
+        if path == "/healthz":
             self._send_text("ok\n")
             return
 
+        if path == "/auth/discord/login":
+            self._handle_discord_login()
+            return
+
+        if path == "/auth/discord/callback":
+            self._handle_discord_callback(query)
+            return
+
         session_id, session = self._get_session()
-        if self.path == "/login":
+        if path == "/login":
             if session is not None:
                 self._redirect("/")
                 return
             self._render_login()
             return
 
-        if self.path != "/":
+        if path != "/":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
 
@@ -319,14 +436,15 @@ class PanelHandler(BaseHTTPRequestHandler):
         self._render_dashboard(session_id, session)
 
     def do_POST(self) -> None:
+        path, _ = self._request_parts()
         fields = self._parse_form()
-        if self.path == "/login":
-            self._handle_login(fields)
+        if path == "/login":
+            self._handle_password_login(fields)
             return
-        if self.path == "/logout":
+        if path == "/logout":
             self._handle_logout()
             return
-        if self.path == "/action":
+        if path == "/action":
             self._handle_action(fields)
             return
         self.send_error(HTTPStatus.NOT_FOUND)
@@ -334,7 +452,11 @@ class PanelHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         return
 
-    def _handle_login(self, fields: dict[str, list[str]]) -> None:
+    def _handle_password_login(self, fields: dict[str, list[str]]) -> None:
+        if self.server.config.password is None:
+            self._render_login(error="Password sign-in is disabled for this panel.")
+            return
+
         password = fields.get("password", [""])[0]
         if not constant_time_equal(password, self.server.config.password):
             self._render_login(error="Invalid panel password.")
@@ -344,7 +466,64 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.SEE_OTHER)
         self._set_security_headers()
         self.send_header("Location", "/")
-        self.send_header("Set-Cookie", build_session_cookie(session_id))
+        self.send_header("Set-Cookie", build_session_cookie(session_id, secure=self.server.config.secure_cookie))
+        self.end_headers()
+
+    def _handle_discord_login(self) -> None:
+        config = self.server.config.discord_oauth
+        if config is None:
+            self._redirect("/login")
+            return
+        state = self.server.oauth_states.create()
+        self._redirect(build_authorize_url(config, state))
+
+    def _handle_discord_callback(self, query: dict[str, list[str]]) -> None:
+        config = self.server.config.discord_oauth
+        if config is None:
+            self._redirect("/login")
+            return
+
+        oauth_error = query.get("error", [""])[0]
+        if oauth_error:
+            self._render_login(error="Discord sign-in was cancelled or failed.")
+            return
+
+        state = query.get("state", [""])[0]
+        code = query.get("code", [""])[0]
+        if not self.server.oauth_states.consume(state):
+            self._render_login(error="The Discord sign-in session expired. Try again.")
+            return
+        if not code:
+            self._render_login(error="Discord did not return an authorization code.")
+            return
+
+        try:
+            access_token = exchange_code(config, code)
+            identity = fetch_identity(access_token)
+        except Exception as error:
+            self._render_login(error=f"Discord sign-in failed: {error}")
+            return
+
+        if not self.server.allowed_users.is_allowed(identity.user_id):
+            self._render_login(error="This Discord account does not have access to the panel.")
+            return
+
+        self.server.allowed_users.touch_user(
+            identity.user_id,
+            display_name=identity.display_name,
+            username=identity.username,
+            avatar_url=identity.avatar_url,
+        )
+        session_id, _ = self.server.sessions.create(
+            user_id=identity.user_id,
+            display_name=identity.display_name,
+            username=identity.username,
+            avatar_url=identity.avatar_url,
+        )
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self._set_security_headers()
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", build_session_cookie(session_id, secure=self.server.config.secure_cookie))
         self.end_headers()
 
     def _handle_logout(self) -> None:
@@ -353,7 +532,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.SEE_OTHER)
         self._set_security_headers()
         self.send_header("Location", "/login")
-        self.send_header("Set-Cookie", expire_session_cookie())
+        self.send_header("Set-Cookie", expire_session_cookie(secure=self.server.config.secure_cookie))
         self.end_headers()
 
     def _handle_action(self, fields: dict[str, list[str]]) -> None:
@@ -374,19 +553,117 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
 
         action = fields.get("action", [""])[0]
+        if action == "allow_user":
+            self._handle_allow_user_action(session_id, session, fields)
+            return
+        if action == "remove_allowed_user":
+            self._handle_remove_user_action(session_id, session, fields)
+            return
+
         branch = fields.get("branch", [""])[0]
         level, title, output = self.server.perform_action(action, branch=branch)
         self.server.sessions.set_flash(session_id, level=level, title=title, output=output)
         self._redirect("/")
 
+    def _handle_allow_user_action(self, session_id: str, session: SessionData, fields: dict[str, list[str]]) -> None:
+        if self.server.config.discord_oauth is None or session.user_id is None:
+            self.server.sessions.set_flash(
+                session_id,
+                level="error",
+                title="Discord required",
+                output="Sign in with Discord to manage panel access.",
+            )
+            self._redirect("/")
+            return
+
+        target_user_id = fields.get("discord_user_id", [""])[0].strip()
+        try:
+            self.server.allowed_users.add_user(target_user_id, added_by=session.user_id)
+        except ValueError as error:
+            self.server.sessions.set_flash(session_id, level="error", title="Invalid user ID", output=str(error))
+            self._redirect("/")
+            return
+
+        self.server.sessions.set_flash(
+            session_id,
+            level="success",
+            title="Access granted",
+            output=f"Discord user {target_user_id} can now sign in to the panel.",
+        )
+        self._redirect("/")
+
+    def _handle_remove_user_action(self, session_id: str, session: SessionData, fields: dict[str, list[str]]) -> None:
+        if self.server.config.discord_oauth is None or session.user_id is None:
+            self.server.sessions.set_flash(
+                session_id,
+                level="error",
+                title="Discord required",
+                output="Sign in with Discord to manage panel access.",
+            )
+            self._redirect("/")
+            return
+
+        target_user_id = fields.get("target_user_id", [""])[0].strip()
+        try:
+            removed = self.server.allowed_users.remove_user(target_user_id)
+        except ValueError as error:
+            self.server.sessions.set_flash(session_id, level="error", title="Access protected", output=str(error))
+            self._redirect("/")
+            return
+
+        if removed:
+            self.server.sessions.set_flash(
+                session_id,
+                level="success",
+                title="Access removed",
+                output=f"Discord user {target_user_id} no longer has panel access.",
+            )
+        else:
+            self.server.sessions.set_flash(
+                session_id,
+                level="error",
+                title="User not found",
+                output=f"Discord user {target_user_id} is not in the access list.",
+            )
+        self._redirect("/")
+
     def _render_login(self, *, error: str | None = None) -> None:
-        self._send_html(render_login_page(LoginPageData(title="Warlords Bot Panel", error=error)))
+        self._send_html(
+            render_login_page(
+                LoginPageData(
+                    title="Warlords Bot Panel",
+                    error=error,
+                    discord_login_url="/auth/discord/login" if self.server.config.discord_oauth is not None else None,
+                    password_enabled=self.server.config.password is not None,
+                )
+            )
+        )
 
     def _render_dashboard(self, session_id: str, session: SessionData) -> None:
         flash = self.server.sessions.pop_flash(session_id)
         flash_message = None
         if flash is not None:
             flash_message = FlashMessage(level=flash[0], title=flash[1], output=flash[2])
+
+        current_user = None
+        if session.user_id is not None:
+            current_user = CurrentUserView(
+                user_id=session.user_id,
+                display_name=session.display_name or session.username or session.user_id,
+                username=session.username,
+                avatar_url=session.avatar_url,
+            )
+
+        allowed_users = tuple(
+            AllowedUserView(
+                user_id=record.user_id,
+                display_name=record.display_name,
+                username=record.username,
+                avatar_url=record.avatar_url,
+                removable=not self.server.allowed_users.is_protected(record.user_id),
+            )
+            for record in self.server.allowed_users.list_users()
+        )
 
         service_data = self.server.service_snapshot()
         git_data = self.server.git_snapshot()
@@ -398,8 +675,15 @@ class PanelHandler(BaseHTTPRequestHandler):
             tracking_status=format_tracking_status(git_data.ahead, git_data.behind),
             logs=self.server.logs_snapshot(),
             flash=flash_message,
+            current_user=current_user,
+            allowed_users=allowed_users,
+            discord_auth_enabled=self.server.config.discord_oauth is not None,
         )
         self._send_html(render_dashboard_page(page))
+
+    def _request_parts(self) -> tuple[str, dict[str, list[str]]]:
+        parsed = urlsplit(self.path)
+        return parsed.path, parse_qs(parsed.query, keep_blank_values=True)
 
     def _parse_form(self) -> dict[str, list[str]]:
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -448,7 +732,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         )
 
 
@@ -479,17 +763,19 @@ def build_status_text(active_state: str, sub_state: str) -> str:
     return f"{active_state.capitalize()} / {sub_state}"
 
 
-def build_session_cookie(session_id: str) -> str:
+def build_session_cookie(session_id: str, *, secure: bool) -> str:
+    secure_attr = " Secure;" if secure else ""
     return (
         f"{SESSION_COOKIE_NAME}={session_id}; "
-        "HttpOnly; Path=/; SameSite=Strict; Max-Age=28800"
+        f"HttpOnly; Path=/; SameSite=Lax; Max-Age=28800;{secure_attr}"
     )
 
 
-def expire_session_cookie() -> str:
+def expire_session_cookie(*, secure: bool) -> str:
+    secure_attr = " Secure;" if secure else ""
     return (
         f"{SESSION_COOKIE_NAME}=deleted; "
-        "HttpOnly; Path=/; SameSite=Strict; Max-Age=0"
+        f"HttpOnly; Path=/; SameSite=Lax; Max-Age=0;{secure_attr}"
     )
 
 
