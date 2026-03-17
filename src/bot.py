@@ -65,18 +65,21 @@ class WarlordsBot(commands.Bot):
 
         guild_id = _parse_optional_int_env("APP_COMMAND_GUILD_ID")
         if guild_id is None:
-            synced_commands = await self.tree.sync()
-            self.logger.info("Синхронизировано %s глобальных slash-команд.", len(synced_commands))
+            global_commands = await self.tree.sync()
+            self.logger.info("Синхронизировано %s глобальных slash-команд.", len(global_commands))
             return
 
         guild = discord.Object(id=guild_id)
         self.tree.copy_global_to(guild=guild)
-        synced_commands = await self.tree.sync(guild=guild)
+        guild_commands = await self.tree.sync(guild=guild)
+        self.tree.clear_commands(guild=None)
+        cleared_global_commands = await self.tree.sync()
         self.logger.info(
             "Синхронизировано %s slash-команд для сервера %s.",
-            len(synced_commands),
+            len(guild_commands),
             guild_id,
         )
+        self.logger.info("Глобальные slash-команды очищены: %s.", len(cleared_global_commands))
 
     async def on_ready(self) -> None:
         await self.bootstrapper.dispatch_on_ready()
@@ -92,6 +95,7 @@ bot = WarlordsBot()
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
     original_error = getattr(error, "original", error)
+    command_name = interaction.command.qualified_name if interaction.command is not None else "<unknown>"
 
     if isinstance(error, app_commands.MissingPermissions):
         message = "❌ Для этой команды нужны права администратора."
@@ -100,7 +104,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     elif is_ignorable_interaction_error(original_error):
         return
     else:
-        logging.getLogger(__name__).exception("Ошибка slash-команды", exc_info=error)
+        logging.getLogger(__name__).exception("Ошибка slash-команды %s", command_name, exc_info=error)
         message = "⚠️ Не удалось выполнить команду. Подробности уже записаны в лог."
 
     await safe_send_ephemeral(interaction, message)
