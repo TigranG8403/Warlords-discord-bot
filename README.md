@@ -2,6 +2,10 @@
 
 Внутренняя справка по текущей структуре проекта, конфигурации, runtime и тестам.
 
+## Связанные репозитории
+
+- Мод Minecraft DiscordAuth: [mess1re/DiscordAuth](https://github.com/mess1re/DiscordAuth)
+
 ## Структура проекта
 
 ```text

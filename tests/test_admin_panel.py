@@ -10,18 +10,24 @@ from admin_panel.discord_auth import DiscordOAuthConfig, build_authorize_url
 from admin_panel.git_ops import GitSnapshot, format_tracking_status, parse_ahead_behind, parse_branch_list, summarize_worktree
 from admin_panel.render import (
     AllowedUserView,
+    BotModuleCardView,
     CurrentUserView,
     DashboardPageData,
+    DiscordAuthChartPointView,
+    DiscordAuthMetricsView,
+    DiscordAuthPlayerView,
+    DiscordAuthSummaryView,
     FlashMessage,
     LoginPageData,
     build_branch_picker,
+    render_discordauth_panel,
     render_dashboard_page,
     render_login_page,
 )
 from admin_panel.server import SessionStore, build_status_text, constant_time_equal, parse_key_value_output, trim_output
 
 
-HERO_DESCRIPTION = "Панель для управления ботом, сервисом и ветками."
+HERO_DESCRIPTION = "Единая панель для управления сервером, ботом и привязками игроков."
 
 
 class PanelHelpersTests(unittest.TestCase):
@@ -84,8 +90,8 @@ class PanelHelpersTests(unittest.TestCase):
         )
         self.assertIn("&lt;bad &quot;input&quot;&gt;", page)
         self.assertIn("/auth/discord/login", page)
-        self.assertIn("Continue with Discord", page)
-        self.assertIn("Panel password", page)
+        self.assertIn("Войти через Discord", page)
+        self.assertIn("Пароль панели", page)
 
     def test_dashboard_page_renders_access_section_and_avatar(self) -> None:
         page = render_dashboard_page(
@@ -131,21 +137,193 @@ class PanelHelpersTests(unittest.TestCase):
                     ),
                 ),
                 discord_auth_enabled=True,
+                bot_modules=(
+                    BotModuleCardView(
+                        name="discordauth",
+                        description="DiscordAuth",
+                        state="ready",
+                        meta="bridge ok",
+                    ),
+                ),
             )
         )
         self.assertIn(HERO_DESCRIPTION, page)
         self.assertIn('class="branch-picker"', page)
         self.assertIn('data-branch-menu', page)
-        self.assertIn('content="240"', page)
-        self.assertIn("Panel Access", page)
-        self.assertIn("Grant access", page)
-        self.assertIn("Protected", page)
-        self.assertIn("Remove", page)
+        self.assertNotIn('http-equiv="refresh"', page)
+        self.assertIn("Доступ к панели", page)
+        self.assertIn("Выдать доступ", page)
+        self.assertIn("Защищён", page)
+        self.assertIn("Убрать", page)
         self.assertIn('class="user-chip"', page)
+        self.assertIn('data-discordauth-root', page)
+        self.assertIn("Модули бота", page)
+        self.assertNotIn('data-dashboard-tab="bot"', page)
+        self.assertNotIn("Служебные модули", page)
+
+    def test_discordauth_panel_removes_extra_stats_and_sanctions_chart(self) -> None:
+        panel = render_discordauth_panel(
+            DashboardPageData(
+                csrf_token="token-2",
+                service_name="warlords-bot",
+                service_data={},
+                git_data=GitSnapshot(
+                    remote_name="origin",
+                    remote_url="https://example.com/repo.git",
+                    current_branch="v2",
+                    commit="abc123",
+                    subject="Latest commit",
+                    upstream="origin/v2",
+                    ahead=0,
+                    behind=0,
+                    worktree_status="clean",
+                    branches=("v2",),
+                ),
+                tracking_status="up to date",
+                logs="",
+                flash=None,
+                current_user=None,
+                allowed_users=(),
+                discord_auth_enabled=True,
+                active_tab="server",
+                discordauth_summary=DiscordAuthSummaryView(
+                    total_players=10,
+                    linked_players=7,
+                    pending_codes=1,
+                    active_sessions=2,
+                    online_players=3,
+                    blocked_players=1,
+                    temp_banned_players=2,
+                ),
+                discordauth_metrics=DiscordAuthMetricsView(
+                    online_now=3,
+                    peak_online_24h=6,
+                    last_sample_label="2026-03-17 18:00",
+                    online_history=(DiscordAuthChartPointView(label="12:00", primary_value=1),),
+                    activity_history=(DiscordAuthChartPointView(label="17.03", primary_value=4, secondary_value=1),),
+                    sanction_history=(DiscordAuthChartPointView(label="17.03", primary_value=2),),
+                ),
+            )
+        )
+
+        self.assertNotIn("Пик 24ч", panel)
+        self.assertNotIn("Санкции за 7 дней", panel)
+        self.assertNotIn("Здесь видны выданные", panel)
+        self.assertNotIn("Ожидают вход", panel)
+        self.assertNotIn("Коды", panel)
+        self.assertNotIn("Обновлено", panel)
+        self.assertIn("Пермабаны", panel)
+        self.assertIn("<circle", panel)
+        self.assertIn("<title>12:00: 1</title>", panel)
+
+    def test_discordauth_player_rows_link_to_panel_tab_without_nested_anchor(self) -> None:
+        panel = render_discordauth_panel(
+            DashboardPageData(
+                csrf_token="token-3",
+                service_name="warlords-bot",
+                service_data={},
+                git_data=GitSnapshot(
+                    remote_name="origin",
+                    remote_url="https://example.com/repo.git",
+                    current_branch="v2",
+                    commit="abc123",
+                    subject="Latest commit",
+                    upstream="origin/v2",
+                    ahead=0,
+                    behind=0,
+                    worktree_status="clean",
+                    branches=("v2",),
+                ),
+                tracking_status="up to date",
+                logs="",
+                flash=None,
+                current_user=None,
+                allowed_users=(),
+                discord_auth_enabled=True,
+                active_tab="panel",
+                discordauth_summary=DiscordAuthSummaryView(
+                    total_players=1,
+                    linked_players=1,
+                    pending_codes=0,
+                    active_sessions=0,
+                    online_players=1,
+                ),
+                discordauth_metrics=DiscordAuthMetricsView(
+                    online_now=1,
+                    peak_online_24h=1,
+                    last_sample_label="2026-03-17 21:00",
+                ),
+                discordauth_players=(
+                    DiscordAuthPlayerView(
+                        player_uuid="uuid-1",
+                        player_name="messire",
+                        discord_user_id="1034533546863382649",
+                        discord_label="messire · @mss1r_ · 1034533546863382649",
+                        discord_profile_url="https://discord.com/users/1034533546863382649",
+                        linked=True,
+                        access_state="AUTO",
+                        access_label="По роли",
+                        access_badge_class="player-tag-auto",
+                        last_ip="127.0.0.1",
+                        last_authenticated_label="2026-03-17 21:00:00",
+                        pending_session_active=False,
+                        pending_session_id=None,
+                        pending_session_label="",
+                        pending_session_address="",
+                        temp_ban_active=False,
+                        temp_ban_until_label="",
+                        temp_ban_reason="",
+                        block_reason="",
+                        is_online=True,
+                        online_since_label="2026-03-17 21:00:00",
+                        last_seen_label="2026-03-17 21:00:00",
+                    ),
+                ),
+            )
+        )
+
+        self.assertIn('/?tab=panel&amp;player_uuid=uuid-1', panel)
+        self.assertNotIn('Discord: <a href=', panel)
+        self.assertIn('data-discordauth-filter-form', panel)
+        self.assertNotIn('name="player_uuid"', panel)
+
+    def test_dashboard_script_maps_legacy_bot_tab_to_panel(self) -> None:
+        page = render_dashboard_page(
+            DashboardPageData(
+                csrf_token="token-4",
+                service_name="warlords-bot",
+                service_data={"Id": "warlords-bot", "status_text": "Active / running", "ActiveState": "active"},
+                git_data=GitSnapshot(
+                    remote_name="origin",
+                    remote_url="https://example.com/repo.git",
+                    current_branch="v2",
+                    commit="abc123",
+                    subject="Latest commit",
+                    upstream="origin/v2",
+                    ahead=0,
+                    behind=0,
+                    worktree_status="clean",
+                    branches=("v2",),
+                ),
+                tracking_status="up to date",
+                logs="",
+                flash=None,
+                current_user=None,
+                allowed_users=(),
+                discord_auth_enabled=True,
+                active_tab="panel",
+            )
+        )
+
+        self.assertIn('rawTab === "panel" || rawTab === "bot" ? "panel" : "server"', page)
+        self.assertNotIn('activateTab(url.searchParams.get("tab") === "bot" ? "bot" : "server")', page)
+        self.assertIn('fetchUrl.searchParams.set("partial", "discordauth")', page)
+        self.assertNotIn('window.setInterval(() => {', page)
+        self.assertNotIn('visibilitychange', page)
 
     def test_build_branch_picker_returns_empty_state(self) -> None:
         markup = build_branch_picker("v2", ())
-        self.assertIn("No remote branches", markup)
+        self.assertIn("Нет удалённых веток", markup)
         self.assertIn('data-branch-input', markup)
         self.assertIn("disabled", markup)
 
