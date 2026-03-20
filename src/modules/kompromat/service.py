@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import re
+
 import discord
 
+from modules.moderation.repository import ModerationRepository
 from modules.tickets.config import convert_to_msk, get_utc_time
 
 from .repository import KompromatEntry, KompromatRepository
+
 
 MENTION_RE = re.compile(r"<@!?(\d+)>")
 
@@ -61,9 +65,25 @@ CATEGORIES = (
 CATEGORY_MAP = {category.key: category for category in CATEGORIES}
 
 
+@dataclass(frozen=True, slots=True)
+class KompromatSearchItem:
+    sort_timestamp: int
+    emoji: str
+    label: str
+    title: str
+    summary: str
+    jump_url: str
+    thread_id: int | None = None
+
+
 class KompromatService:
-    def __init__(self, repository: KompromatRepository) -> None:
+    def __init__(
+        self,
+        repository: KompromatRepository,
+        moderation_repository: ModerationRepository | None = None,
+    ) -> None:
         self.repository = repository
+        self.moderation_repository = moderation_repository
 
     def categories(self) -> tuple[KompromatCategory, ...]:
         return CATEGORIES
@@ -141,10 +161,26 @@ class KompromatService:
         )
         return message, thread
 
-    def search_by_member(self, *, guild_id: int, member: discord.Member) -> list[KompromatEntry]:
-        return self.repository.search_by_member(guild_id=guild_id, member_id=member.id)
+    def search_by_member(self, *, guild_id: int, member: discord.Member, limit: int = 10) -> list[KompromatSearchItem]:
+        items: list[KompromatSearchItem] = []
+        for entry in self.repository.search_by_member(guild_id=guild_id, member_id=member.id, limit=limit):
+            items.append(self._manual_search_item(entry))
 
-    def build_search_embed(self, *, member: discord.Member, entries: list[KompromatEntry]) -> discord.Embed:
+        if self.moderation_repository is not None:
+            settings = self.moderation_repository.get_guild_settings(guild_id)
+            archive_channel_id = settings.archive_channel_id if settings is not None else None
+            for event in self.moderation_repository.list_events_by_member(guild_id=guild_id, member_id=member.id, limit=limit):
+                items.append(
+                    self._moderation_search_item(
+                        event=event,
+                        archive_channel_id=archive_channel_id,
+                    )
+                )
+
+        items.sort(key=lambda item: item.sort_timestamp, reverse=True)
+        return items[:limit]
+
+    def build_search_embed(self, *, member: discord.Member, entries: list[KompromatSearchItem]) -> discord.Embed:
         if not entries:
             return discord.Embed(
                 title=f"Компроматы по {member.display_name}",
@@ -154,14 +190,12 @@ class KompromatService:
 
         lines: list[str] = []
         for entry in entries:
-            category = self.category(entry.category_key)
-            created_at = convert_to_msk(discord.utils.parse_time(entry.created_at)).strftime("%d.%m.%Y %H:%M")
-            jump_url = f"https://discord.com/channels/{entry.guild_id}/{entry.channel_id}/{entry.message_id}"
+            created_at = convert_to_msk(datetime.fromtimestamp(entry.sort_timestamp, tz=timezone.utc)).strftime("%d.%m.%Y %H:%M")
             thread_part = f" • <#{entry.thread_id}>" if entry.thread_id else ""
             lines.append(
-                f"{category.emoji} **{category.label}** - [{entry.title}]({jump_url})\n"
+                f"{entry.emoji} **{entry.label}** - [{entry.title}]({entry.jump_url})\n"
                 f"`{created_at}`{thread_part}\n"
-                f"{discord.utils.escape_markdown(self._shorten(entry.summary, 160))}"
+                f"{discord.utils.escape_markdown(self._shorten(entry.summary, 180))}"
             )
 
         return discord.Embed(
@@ -218,23 +252,46 @@ class KompromatService:
         embed.set_footer(text="Доказательства можно найти в треде под этой записью")
         return embed
 
-    def _extract_tagged_user_ids(self, tags_text: str | None) -> list[int]:
-        if not tags_text:
-            return []
-        seen: set[int] = set()
-        result: list[int] = []
-        for raw_user_id in MENTION_RE.findall(tags_text):
-            user_id = int(raw_user_id)
-            if user_id in seen:
-                continue
-            seen.add(user_id)
-            result.append(user_id)
-        return result
+    def _manual_search_item(self, entry: KompromatEntry) -> KompromatSearchItem:
+        category = self.category(entry.category_key)
+        created_at = discord.utils.parse_time(entry.created_at)
+        sort_timestamp = int(created_at.timestamp()) if created_at is not None else 0
+        return KompromatSearchItem(
+            sort_timestamp=sort_timestamp,
+            emoji=category.emoji,
+            label=category.label,
+            title=entry.title,
+            summary=entry.summary,
+            jump_url=f"https://discord.com/channels/{entry.guild_id}/{entry.channel_id}/{entry.message_id}",
+            thread_id=entry.thread_id,
+        )
+
+    def _moderation_search_item(self, *, event, archive_channel_id: int | None) -> KompromatSearchItem:
+        decision_label = {
+            "light_violation": "Автомут",
+            "ban_violation": "Автобан",
+            "scam_alert": "Пинг модерации",
+            "review": "Ручная проверка",
+            "allow": "Отпущено",
+        }.get(event.decision, "Автомодерация")
+        jump_channel_id = archive_channel_id if archive_channel_id and event.archive_message_id else event.channel_id
+        jump_message_id = event.archive_message_id or event.message_id
+        title = self._shorten(" ".join((event.message_content or decision_label).split()), 90)
+        summary = event.reason or event.reply_text or event.message_content or decision_label
+        return KompromatSearchItem(
+            sort_timestamp=max(0, int(event.created_at)),
+            emoji="🤖",
+            label=f"Автомодерация • {decision_label}",
+            title=title,
+            summary=summary,
+            jump_url=f"https://discord.com/channels/{event.guild_id}/{jump_channel_id}/{jump_message_id}",
+        )
 
     def _shorten(self, text: str, limit: int) -> str:
-        if len(text) <= limit:
-            return text
-        return text[: limit - 1].rstrip() + "…"
+        normalized = " ".join(text.split())
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: limit - 1].rstrip() + "…"
 
     def _sanitize_thread_name(self, text: str) -> str:
         compact = " ".join(text.split())
