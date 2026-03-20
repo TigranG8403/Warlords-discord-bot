@@ -110,4 +110,11 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     await safe_send_ephemeral(interaction, message)
 
 
+@bot.event
+async def on_command_error(_ctx: commands.Context[commands.Bot], error: commands.CommandError) -> None:
+    if isinstance(error, commands.CommandNotFound):
+        return
+    logging.getLogger(__name__).exception("Ошибка текстовой команды", exc_info=error)
+
+
 bot.run(_require_env("DISCORD_TOKEN"))
