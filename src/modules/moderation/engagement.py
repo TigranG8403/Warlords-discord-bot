@@ -5,7 +5,7 @@ import time
 
 import discord
 
-from .memory import PersonaMemoryStore
+from .memory import PersonaMemoryEntry, PersonaMemoryStore
 
 _MENTION_TOKEN_RE = re.compile(r"<@!?\d+>|<@&\d+>")
 _ACK_WORDS = {
@@ -135,6 +135,29 @@ def is_textually_addressed_to_bot(
     return False
 
 
+def should_continue_persona_dialogue(
+    *,
+    message: discord.Message,
+    memory_entry: PersonaMemoryEntry | None,
+    continue_window_seconds: int = 90,
+) -> bool:
+    if memory_entry is None or memory_entry.topic != "dialogue":
+        return False
+    if int(time.time()) - memory_entry.remembered_at > continue_window_seconds:
+        return False
+
+    content = " ".join((message.content or "").split()).strip()
+    if not content:
+        return False
+    if content.startswith("/"):
+        return False
+    if getattr(message, "mentions", None) or getattr(message, "role_mentions", None):
+        return False
+    if re.search(r"https?://|discord\.gg/|t\.me/|vk\.com/", content, re.IGNORECASE):
+        return False
+    return True
+
+
 def should_suppress_persona_text_reply(message: discord.Message, reply_text: str) -> bool:
     if not reply_text:
         return False
@@ -163,24 +186,34 @@ def should_skip_duplicate_persona_reply(
     current_user_content: str,
     previous_user_content: str,
     previous_bot_reply: str,
+    recent_bot_replies: tuple[str, ...] = (),
     candidate_reply: str,
     reaction_emoji: str,
     previous_remembered_at: int = 0,
     duplicate_window_seconds: int = 30,
+    repeat_window_seconds: int = 180,
 ) -> bool:
     if reaction_emoji:
         return False
     if previous_remembered_at <= 0:
         return False
-    if int(time.time()) - previous_remembered_at > duplicate_window_seconds:
-        return False
+    age_seconds = int(time.time()) - previous_remembered_at
     current = " ".join(current_user_content.split()).strip().lower()
     previous_user = " ".join(previous_user_content.split()).strip().lower()
     previous_bot = " ".join(previous_bot_reply.split()).strip()
     candidate = " ".join(candidate_reply.split()).strip()
     if not current or not previous_user or not previous_bot or not candidate:
         return False
-    return current == previous_user and candidate == previous_bot
+    if age_seconds <= duplicate_window_seconds and current == previous_user and candidate == previous_bot:
+        return True
+    if age_seconds > repeat_window_seconds:
+        return False
+    recent = tuple(" ".join(item.split()).strip() for item in recent_bot_replies if item.strip())
+    if not recent:
+        return False
+    if current == previous_user:
+        return False
+    return candidate in recent
 
 
 def should_skip_recent_channel_duplicate_reply(

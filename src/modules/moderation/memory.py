@@ -9,6 +9,7 @@ class PersonaMemoryEntry:
     topic: str
     last_user_content: str
     last_bot_reply: str
+    recent_bot_replies: tuple[str, ...]
     remembered_at: int
     expires_at: int
 
@@ -46,13 +47,21 @@ class PersonaMemoryStore:
         last_bot_reply: str,
     ) -> None:
         self._prune()
+        key = (guild_id, channel_id, user_id)
+        existing = self._entries.get(key)
+        normalized_reply = " ".join(last_bot_reply.split()).strip()
+        reply_history = list(existing.recent_bot_replies if existing is not None else ())
+        if normalized_reply:
+            reply_history.append(normalized_reply)
+            reply_history = reply_history[-4:]
         if len(self._entries) >= self.max_entries:
             oldest_key = min(self._entries.items(), key=lambda item: item[1].expires_at)[0]
             self._entries.pop(oldest_key, None)
-        self._entries[(guild_id, channel_id, user_id)] = PersonaMemoryEntry(
+        self._entries[key] = PersonaMemoryEntry(
             topic=topic,
             last_user_content=last_user_content,
             last_bot_reply=last_bot_reply,
+            recent_bot_replies=tuple(reply_history),
             remembered_at=int(time.time()),
             expires_at=int(time.time()) + self.ttl_seconds,
         )

@@ -10,10 +10,19 @@ URL_RE = re.compile(r"https?://\S+|discord\.gg/\S+|t\.me/\S+|vk\.com/\S+", re.IG
 MENTION_SPAM_RE = re.compile(r"(<@!?\d+>|@everyone|@here)")
 LONG_REPEAT_RE = re.compile(r"(.)\1{7,}")
 REPEATED_WORDS_RE = re.compile(r"\b(\w+)(?:\s+\1){3,}\b", re.IGNORECASE)
-PROFANITY_RE = re.compile(r"(нахуй|хуй|хуйн|пизд|ебан|ебл|уеб|уёб|залуп|высрал|высрал)", re.IGNORECASE)
-HARD_INSULT_RE = re.compile(r"(долбо[её]б|еблан|у[её]бок|хуесос|мраз[ьй]|пидор|гнида|чмо|тварь|шлюха|урод|дегенерат|ублюдок)", re.IGNORECASE)
-DIRECT_TARGET_RE = re.compile(r"(^|[\s,.;:!?])(ты|тебя|тебе|твой|твоя|твоё|иди|пош[её]л|сдохни|заткнись|завали|<@!?\d+>)(?=$|[\s,.;:!?])", re.IGNORECASE)
-HATE_GROUP_RE = re.compile(r"(евре[йяе]|иуде|мусульман|ислам|христиан|православ|католик|буддист|религи)", re.IGNORECASE)
+PROFANITY_RE = re.compile(r"(нахуй|хуй|хуйн|пизд|ебан|ебл|уеб|уёб|залуп|высрал)", re.IGNORECASE)
+HARD_INSULT_RE = re.compile(
+    r"(долбо[её]б|еблан|у[её]бок|хуесос|мраз[ьй]|пидор|гнида|чмо|тварь|шлюха|урод|дегенерат|ублюдок)",
+    re.IGNORECASE,
+)
+DIRECT_TARGET_RE = re.compile(
+    r"(^|[\s,.;:!?])(ты|тебя|тебе|твой|твоя|твоё|иди|пош[её]л|сдохни|заткнись|завали|<@!?\d+>)(?=$|[\s,.;:!?])",
+    re.IGNORECASE,
+)
+HATE_GROUP_RE = re.compile(
+    r"(евре[йяе]|иуде|мусульман|ислам|христиан|православ|католик|буддист|религи)",
+    re.IGNORECASE,
+)
 VIOLENT_VERB_RE = re.compile(r"(сжечь|жечь|убить|резать|повес|замуч|уничтож)", re.IGNORECASE)
 
 CASINO_PROMO_RE = re.compile(
@@ -85,6 +94,7 @@ def evaluate_with_rules(payload: ModerationEvaluationInput) -> ModerationDecisio
             confidence=0.97,
             reason="OCR на вложениях очень похож на казино, скам или бонусную разводку.",
             labels=("scam", "casino", "ocr"),
+            reply_text="Казиношную муть тащи мимо. Здесь такие бонусы заканчиваются быстро.",
             source="rules",
             should_delete_message=True,
         )
@@ -95,6 +105,7 @@ def evaluate_with_rules(payload: ModerationEvaluationInput) -> ModerationDecisio
             confidence=0.97,
             reason="Это похоже на казино, фишинг или откровенный скам.",
             labels=("scam", "promo"),
+            reply_text="Скам и казино оставь при себе. Здесь это не живёт.",
             source="rules",
             should_delete_message=True,
         )
@@ -105,6 +116,7 @@ def evaluate_with_rules(payload: ModerationEvaluationInput) -> ModerationDecisio
             confidence=0.9,
             reason="Это похоже на рекламу или внешний промо-вброс.",
             labels=("advertising",),
+            reply_text="Рекламный вброс здесь лишний. Сейчас позову тех, кому это интересно по должности.",
             source="rules",
             requires_admin_alert=True,
         )
@@ -116,6 +128,7 @@ def evaluate_with_rules(payload: ModerationEvaluationInput) -> ModerationDecisio
             reason="Похоже на флуд, спам или бессмысленный массовый шум.",
             labels=("spam",),
             timeout_minutes=60,
+            reply_text="Сбавь шум. Чат не обязан терпеть это соло-выступление.",
             source="rules",
             should_delete_message=True,
             should_timeout_user=True,
@@ -127,6 +140,7 @@ def evaluate_with_rules(payload: ModerationEvaluationInput) -> ModerationDecisio
             confidence=0.95,
             reason="Есть явный призыв к насилию против группы людей.",
             labels=("violence", "religion_attack"),
+            reply_text="С людоедскими призывами тебе точно не сюда.",
             source="rules",
             should_delete_message=True,
         )
@@ -138,6 +152,7 @@ def evaluate_with_rules(payload: ModerationEvaluationInput) -> ModerationDecisio
             reason="Есть прямое жёсткое оскорбление человека.",
             labels=("insult",),
             timeout_minutes=180,
+            reply_text="Язык придержи. На помойку это больше похоже, чем на разговор.",
             source="rules",
             should_delete_message=True,
             should_timeout_user=True,

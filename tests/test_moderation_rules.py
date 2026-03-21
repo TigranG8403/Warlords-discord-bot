@@ -40,6 +40,7 @@ class ModerationRulesTests(unittest.TestCase):
         self.assertEqual(decision.decision, "light_violation")
         self.assertEqual(decision.timeout_minutes, 180)
         self.assertIn("insult", decision.labels)
+        self.assertTrue(decision.reply_text)
 
     def test_rules_return_ban_for_hate_violence(self) -> None:
         decision = evaluate_with_rules(
@@ -58,6 +59,7 @@ class ModerationRulesTests(unittest.TestCase):
 
         self.assertEqual(decision.decision, "ban_violation")
         self.assertIn("religion_attack", decision.labels)
+        self.assertTrue(decision.reply_text)
 
     def test_rules_allow_server_question_with_plain_profanity(self) -> None:
         decision = evaluate_with_rules(
@@ -93,6 +95,7 @@ class ModerationRulesTests(unittest.TestCase):
 
         self.assertEqual(decision.decision, "ban_violation")
         self.assertTrue(decision.should_delete_message)
+        self.assertTrue(decision.reply_text)
 
     def test_rules_return_ban_for_suspicious_ocr_casino_screenshot(self) -> None:
         decision = evaluate_with_rules(
@@ -116,6 +119,7 @@ class ModerationRulesTests(unittest.TestCase):
 
         self.assertEqual(decision.decision, "ban_violation")
         self.assertIn("ocr", decision.labels)
+        self.assertTrue(decision.reply_text)
 
     def test_rules_return_alert_for_regular_advertising(self) -> None:
         decision = evaluate_with_rules(
@@ -143,6 +147,7 @@ class ModerationRulesTests(unittest.TestCase):
 
         self.assertEqual(decision.decision, "scam_alert")
         self.assertTrue(decision.requires_admin_alert)
+        self.assertTrue(decision.reply_text)
 
     def test_rules_allow_plain_profanity_without_personal_attack(self) -> None:
         decision = evaluate_with_rules(

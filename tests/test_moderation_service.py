@@ -68,6 +68,20 @@ class ModerationServiceTests(unittest.TestCase):
         base.update(overrides)
         return ModerationEvaluationInput(**base)
 
+    def test_addressed_to_bot_messages_are_always_considered_with_ai_enabled(self) -> None:
+        service = self._service(
+            ModerationDecision(
+                decision="allow",
+                confidence=0.7,
+                reason="Обычный вопрос к боту.",
+                source="deepseek:deepseek-chat",
+            )
+        )
+
+        message = _FakeMessage(content="Почему ты копируешь прошлые фразы, как полуумный")
+
+        self.assertTrue(service.should_consider(message, addressed_to_bot=True))
+
     def test_light_violation_keeps_ai_reply_and_operational_policy(self) -> None:
         service = self._service(
             ModerationDecision(
@@ -261,10 +275,10 @@ class ModerationServiceTests(unittest.TestCase):
         self.assertTrue(result.should_delete_message)
         self.assertTrue(result.should_timeout_user)
 
-    def test_direct_bot_greeting_bypasses_moderation_path(self) -> None:
+    def test_direct_bot_greeting_enters_ai_moderation_path(self) -> None:
         service = self._service(
             ModerationDecision(
-                decision="review",
+                decision="allow",
                 confidence=0.6,
                 reason="Даже не должно вызываться на обычном приветствии.",
                 source="deepseek:deepseek-chat",
@@ -273,7 +287,7 @@ class ModerationServiceTests(unittest.TestCase):
 
         result = service.should_consider(_FakeMessage(content="@Warlords ку"), addressed_to_bot=True)
 
-        self.assertFalse(result)
+        self.assertTrue(result)
 
     def test_direct_bot_insult_still_enters_moderation_path(self) -> None:
         service = self._service(

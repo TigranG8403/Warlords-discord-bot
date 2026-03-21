@@ -48,14 +48,16 @@ class ModerationService:
 
     def should_consider(self, message: discord.Message, *, addressed_to_bot: bool = False) -> bool:
         has_scannable_attachment = any(self._should_scan_attachment(item) for item in message.attachments)
+        if self.ai_client is not None and self.ai_client.is_configured():
+            if addressed_to_bot:
+                return bool(message.content.strip() or has_scannable_attachment)
+            return bool(message.content.strip() or has_scannable_attachment)
         if addressed_to_bot and not has_scannable_attachment:
             return should_consider_message_for_moderation(
                 message.content,
                 attachment_filenames=(attachment.filename for attachment in message.attachments),
                 mention_count=len(message.mentions),
             )
-        if self.ai_client is not None and self.ai_client.is_configured():
-            return bool(message.content.strip() or has_scannable_attachment)
         return should_consider_message_for_moderation(
             message.content,
             attachment_filenames=(attachment.filename for attachment in message.attachments),

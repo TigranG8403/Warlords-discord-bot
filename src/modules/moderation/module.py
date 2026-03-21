@@ -24,6 +24,7 @@ from .engagement import (
     is_textually_addressed_to_bot,
     remember_channel_reply,
     remember_persona_context,
+    should_continue_persona_dialogue,
     should_skip_recent_channel_duplicate_reply,
     should_skip_duplicate_persona_reply,
     should_suppress_persona_text_reply,
@@ -192,16 +193,25 @@ def build_module() -> BotModule:
                 bot_user=bot.user,
                 bot_member=message.guild.me,
             )
-            addressed_to_bot = reply_to_bot or bot_mentioned or bot_role_mentioned or is_textually_addressed_to_bot(
-                message,
-                bot_user=bot.user,
-                bot_member=message.guild.me,
-            )
             protected_member = is_protected_member(message.author, message.guild, bot_user_id)
             memory_entry = memory_store.get(
                 guild_id=message.guild.id,
                 channel_id=message.channel.id,
                 user_id=message.author.id,
+            )
+            addressed_to_bot = (
+                reply_to_bot
+                or bot_mentioned
+                or bot_role_mentioned
+                or is_textually_addressed_to_bot(
+                    message,
+                    bot_user=bot.user,
+                    bot_member=message.guild.me,
+                )
+                or should_continue_persona_dialogue(
+                    message=message,
+                    memory_entry=memory_entry,
+                )
             )
 
             if not service.should_consider(message, addressed_to_bot=addressed_to_bot):
@@ -214,6 +224,7 @@ def build_module() -> BotModule:
                         bot_mentioned=bot_mentioned,
                         previous_user_content=memory_entry.last_user_content if memory_entry else "",
                         previous_bot_reply=memory_entry.last_bot_reply if memory_entry else "",
+                        previous_bot_replies=memory_entry.recent_bot_replies if memory_entry else (),
                         previous_remembered_at=memory_entry.remembered_at if memory_entry else 0,
                         author_is_protected=protected_member,
                     )
@@ -246,6 +257,7 @@ def build_module() -> BotModule:
                         bot_mentioned=bot_mentioned,
                         previous_user_content=memory_entry.last_user_content if memory_entry else "",
                         previous_bot_reply=memory_entry.last_bot_reply if memory_entry else "",
+                        previous_bot_replies=memory_entry.recent_bot_replies if memory_entry else (),
                         previous_remembered_at=memory_entry.remembered_at if memory_entry else 0,
                         author_is_protected=protected_member,
                     )
@@ -274,6 +286,7 @@ def build_module() -> BotModule:
                 bot_mentioned=bot_mentioned,
                 previous_user_content=memory_entry.last_user_content if memory_entry else "",
                 previous_bot_reply=memory_entry.last_bot_reply if memory_entry else "",
+                previous_bot_replies=memory_entry.recent_bot_replies if memory_entry else (),
                 previous_remembered_at=memory_entry.remembered_at if memory_entry else 0,
                 author_is_protected=protected_member,
             )
@@ -353,6 +366,7 @@ async def _apply_decision(
     bot_mentioned: bool,
     previous_user_content: str,
     previous_bot_reply: str,
+    previous_bot_replies: tuple[str, ...],
     previous_remembered_at: int,
     author_is_protected: bool,
 ) -> None:
@@ -374,6 +388,7 @@ async def _apply_decision(
                 bot_mentioned=bot_mentioned,
                 previous_user_content=previous_user_content,
                 previous_bot_reply=previous_bot_reply,
+                previous_bot_replies=previous_bot_replies,
                 previous_remembered_at=previous_remembered_at,
                 author_is_protected=author_is_protected,
             )
@@ -439,6 +454,7 @@ async def _send_persona_reply(
     bot_mentioned: bool,
     previous_user_content: str,
     previous_bot_reply: str,
+    previous_bot_replies: tuple[str, ...],
     previous_remembered_at: int,
     author_is_protected: bool,
 ) -> None:
@@ -483,6 +499,7 @@ async def _send_persona_reply(
         current_user_content=message.content,
         previous_user_content=previous_user_content,
         previous_bot_reply=previous_bot_reply,
+        recent_bot_replies=previous_bot_replies,
         candidate_reply=normalized_reply,
         reaction_emoji=reaction_emoji,
         previous_remembered_at=previous_remembered_at,
