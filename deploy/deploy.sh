@@ -66,20 +66,35 @@ if [[ ! -d "${release_dir}" ]]; then
     mv -- "${staging_dir}" "${release_dir}"
     staging_dir=""
 fi
+chmod 0755 "${release_dir}"
 
-previous_release="$(readlink -f "${CURRENT_LINK}" 2>/dev/null || true)"
+previous_release=""
+if [[ -L "${CURRENT_LINK}" ]]; then
+    previous_release="$(readlink -e "${CURRENT_LINK}" 2>/dev/null || true)"
+fi
 next_link="${APP_ROOT}/.current.next"
+
+restore_previous_release() {
+    if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
+        rm -f -- "${next_link}"
+        ln -s "${previous_release}" "${next_link}"
+        mv -Tf -- "${next_link}" "${CURRENT_LINK}"
+        systemctl restart "${SERVICE_NAME}" || true
+        echo "Previous bot release restored." >&2
+        return
+    fi
+
+    systemctl stop "${SERVICE_NAME}" || true
+    echo "No previous bot release was available." >&2
+}
+
 rm -f -- "${next_link}"
 ln -s "${release_dir}" "${next_link}"
 mv -Tf -- "${next_link}" "${CURRENT_LINK}"
 
 if ! systemctl restart "${SERVICE_NAME}"; then
-    if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
-        ln -s "${previous_release}" "${next_link}"
-        mv -Tf -- "${next_link}" "${CURRENT_LINK}"
-        systemctl restart "${SERVICE_NAME}" || true
-    fi
-    echo "Bot restart failed; previous release restored." >&2
+    restore_previous_release
+    echo "Bot restart failed." >&2
     exit 5
 fi
 
@@ -96,14 +111,8 @@ for _attempt in $(seq 1 60); do
 done
 
 if [[ "${ready}" != "true" ]]; then
-    if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
-        ln -s "${previous_release}" "${next_link}"
-        mv -Tf -- "${next_link}" "${CURRENT_LINK}"
-        systemctl restart "${SERVICE_NAME}" || true
-    else
-        systemctl stop "${SERVICE_NAME}" || true
-    fi
-    echo "Bot did not remain active; previous release restored." >&2
+    restore_previous_release
+    echo "Bot did not become ready before the deployment timeout." >&2
     exit 6
 fi
 
