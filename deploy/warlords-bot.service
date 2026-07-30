@@ -1,0 +1,33 @@
+[Unit]
+Description=Warlords Discord Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=warlords-bot
+Group=warlords-bot
+WorkingDirectory=/opt/warlords-bot-runtime/current/source
+EnvironmentFile=/etc/warlords-bot.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/warlords-bot-runtime/current/venv/bin/python /opt/warlords-bot-runtime/current/source/src/bot.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0027
+StateDirectory=warlords-bot
+StateDirectoryMode=0750
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/warlords-bot
+
+[Install]
+WantedBy=multi-user.target

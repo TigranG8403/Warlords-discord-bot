@@ -1,5 +1,8 @@
 __pycache__/
 *.py[cod]
+.venv/
+*.log
 data/*.sqlite3
 data/*.json
 SERVER_OPERATIONS.md
+src/.env

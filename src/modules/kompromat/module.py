@@ -13,7 +13,6 @@ from core.module import BotModule
 from core.panel_registry import PublishedPanelRecord, PublishedPanelRepository
 from core.panel_runtime import PanelRenderResult, PanelRuntime
 from core.time_of_day import period_key, pick_banner_asset_path
-from modules.moderation.repository import ModerationRepository
 from modules.tickets.banner import make_banner_file
 from modules.tickets.config import get_msk_time
 
@@ -29,7 +28,6 @@ KOMPROMAT_BANNER_TEXT = "Compromat"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 ASSETS_DIR = PROJECT_ROOT / "assets"
 KOMPROMAT_DB_PATH = PROJECT_ROOT / "data" / "kompromat.sqlite3"
-MODERATION_DB_PATH = PROJECT_ROOT / "data" / "moderation.sqlite3"
 PANEL_REGISTRY_DB_PATH = PROJECT_ROOT / "data" / "panel_registry.sqlite3"
 KOMPROMAT_PANELS_LEGACY_PATH = PROJECT_ROOT / "data" / "kompromat_panels.json"
 KOMPROMAT_COLOR = 0x701F1F
@@ -59,8 +57,7 @@ async def _safe_followup(interaction: discord.Interaction, message: str, *, inte
 
 def build_module() -> BotModule:
     repository = KompromatRepository(KOMPROMAT_DB_PATH)
-    moderation_repository = ModerationRepository(MODERATION_DB_PATH)
-    service = KompromatService(repository, moderation_repository)
+    service = KompromatService(repository)
     panel_repository = PublishedPanelRepository(
         PANEL_REGISTRY_DB_PATH,
         namespace="kompromat",

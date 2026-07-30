@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Warlords Discord Bot deployment requests
+
+[Path]
+PathExists=/var/lib/warlords-bot/deploy.request
+Unit=warlords-bot-deploy.service
+
+[Install]
+WantedBy=multi-user.target

@@ -6,7 +6,6 @@ import re
 
 import discord
 
-from modules.moderation.repository import ModerationRepository
 from modules.tickets.config import convert_to_msk, get_utc_time
 
 from .repository import KompromatEntry, KompromatRepository
@@ -77,13 +76,8 @@ class KompromatSearchItem:
 
 
 class KompromatService:
-    def __init__(
-        self,
-        repository: KompromatRepository,
-        moderation_repository: ModerationRepository | None = None,
-    ) -> None:
+    def __init__(self, repository: KompromatRepository) -> None:
         self.repository = repository
-        self.moderation_repository = moderation_repository
 
     def categories(self) -> tuple[KompromatCategory, ...]:
         return CATEGORIES
@@ -162,21 +156,14 @@ class KompromatService:
         return message, thread
 
     def search_by_member(self, *, guild_id: int, member: discord.Member, limit: int = 10) -> list[KompromatSearchItem]:
-        items: list[KompromatSearchItem] = []
-        for entry in self.repository.search_by_member(guild_id=guild_id, member_id=member.id, limit=limit):
-            items.append(self._manual_search_item(entry))
-
-        if self.moderation_repository is not None:
-            settings = self.moderation_repository.get_guild_settings(guild_id)
-            archive_channel_id = settings.archive_channel_id if settings is not None else None
-            for event in self.moderation_repository.list_events_by_member(guild_id=guild_id, member_id=member.id, limit=limit):
-                items.append(
-                    self._moderation_search_item(
-                        event=event,
-                        archive_channel_id=archive_channel_id,
-                    )
-                )
-
+        items = [
+            self._manual_search_item(entry)
+            for entry in self.repository.search_by_member(
+                guild_id=guild_id,
+                member_id=member.id,
+                limit=limit,
+            )
+        ]
         items.sort(key=lambda item: item.sort_timestamp, reverse=True)
         return items[:limit]
 
@@ -264,27 +251,6 @@ class KompromatService:
             summary=entry.summary,
             jump_url=f"https://discord.com/channels/{entry.guild_id}/{entry.channel_id}/{entry.message_id}",
             thread_id=entry.thread_id,
-        )
-
-    def _moderation_search_item(self, *, event, archive_channel_id: int | None) -> KompromatSearchItem:
-        decision_label = {
-            "light_violation": "Автомут",
-            "ban_violation": "Автобан",
-            "scam_alert": "Пинг модерации",
-            "review": "Ручная проверка",
-            "allow": "Отпущено",
-        }.get(event.decision, "Автомодерация")
-        jump_channel_id = archive_channel_id if archive_channel_id and event.archive_message_id else event.channel_id
-        jump_message_id = event.archive_message_id or event.message_id
-        title = self._shorten(" ".join((event.message_content or decision_label).split()), 90)
-        summary = event.reason or event.reply_text or event.message_content or decision_label
-        return KompromatSearchItem(
-            sort_timestamp=max(0, int(event.created_at)),
-            emoji="🤖",
-            label=f"Автомодерация • {decision_label}",
-            title=title,
-            summary=summary,
-            jump_url=f"https://discord.com/channels/{event.guild_id}/{jump_channel_id}/{jump_message_id}",
         )
 
     def _shorten(self, text: str, limit: int) -> str:

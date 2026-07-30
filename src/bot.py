@@ -86,7 +86,9 @@ class WarlordsBot(commands.Bot):
         self.logger.info("Бот готов к работе.")
 
 
-load_dotenv(dotenv_path=BASE_DIR / ".env")
+# Local development may use src/.env. Production injects the same values
+# through systemd and must always take precedence over the local file.
+load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 _configure_logging()
 
 bot = WarlordsBot()

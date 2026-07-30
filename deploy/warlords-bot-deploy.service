@@ -1,0 +1,18 @@
+[Unit]
+Description=Atomically deploy the latest tested Warlords Discord Bot release
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/warlords-bot-deploy.env
+ExecStart=/usr/local/sbin/warlords-bot-deploy
+TimeoutStartSec=15min
+UMask=0027
+
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/warlords-bot-runtime /var/lib/warlords-bot
