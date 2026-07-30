@@ -66,7 +66,8 @@ if [[ ! -d "${release_dir}" ]]; then
     mv -- "${staging_dir}" "${release_dir}"
     staging_dir=""
 fi
-chmod 0755 "${release_dir}"
+chown -R "root:${BOT_GROUP}" "${release_dir}"
+chmod 0750 "${release_dir}"
 
 previous_release=""
 if [[ -L "${CURRENT_LINK}" ]]; then
