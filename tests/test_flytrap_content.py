@@ -6,7 +6,7 @@ import discord
 
 from tests import support  # noqa: F401
 
-from modules.flytrap.content import build_warning_view
+from modules.flytrap.content import COUNTER_CUSTOM_ID, build_warning_view
 
 
 class FlytrapContentTests(unittest.TestCase):
@@ -28,7 +28,8 @@ class FlytrapContentTests(unittest.TestCase):
         counter = action_row.children[0]
         self.assertIsInstance(counter, discord.ui.Button)
         self.assertEqual(counter.label, "Мух: 12")
-        self.assertTrue(counter.disabled)
+        self.assertFalse(counter.disabled)
+        self.assertEqual(counter.custom_id, COUNTER_CUSTOM_ID)
 
 
 if __name__ == "__main__":

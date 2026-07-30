@@ -4,6 +4,7 @@ import discord
 
 
 PANEL_COLOR = 0x6D1A1A
+COUNTER_CUSTOM_ID = "flytrap:counter"
 
 
 def build_warning_view(moderated_count: int) -> discord.ui.LayoutView:
@@ -19,7 +20,7 @@ def build_warning_view(moderated_count: int) -> discord.ui.LayoutView:
                     style=discord.ButtonStyle.secondary,
                     label=f"Мух: {moderated_count}",
                     emoji="🪰",
-                    disabled=True,
+                    custom_id=COUNTER_CUSTOM_ID,
                 )
             ),
             accent_color=PANEL_COLOR,

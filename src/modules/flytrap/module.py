@@ -7,10 +7,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.discord_interactions import safe_defer, safe_followup_send
+from core.discord_interactions import (
+    safe_defer,
+    safe_followup_send,
+    safe_response_send_message,
+)
 from core.module import BotModule
 
-from .content import build_warning_view
+from .content import COUNTER_CUSTOM_ID, build_warning_view
 from .models import FlytrapAction, FlytrapConfig
 from .repository import FlytrapRepository
 from .service import FlytrapService
@@ -262,8 +266,30 @@ def build_module() -> BotModule:
         async def on_message(message: discord.Message) -> None:
             await service.handle_message(message)
 
+        async def on_interaction(interaction: discord.Interaction) -> None:
+            data = interaction.data or {}
+            if data.get("custom_id") != COUNTER_CUSTOM_ID:
+                return
+
+            guild = interaction.guild
+            config = repository.get_config(guild.id) if guild is not None else None
+            if config is None:
+                await safe_response_send_message(
+                    interaction,
+                    "ℹ️ Мухоловка сейчас не настроена.",
+                    ephemeral=True,
+                )
+                return
+
+            await safe_response_send_message(
+                interaction,
+                f"🪰 Мух поймано: **{config.moderated_count}**.",
+                ephemeral=True,
+            )
+
         bot.tree.add_command(flytrap_group)
         bot.add_listener(on_message, "on_message")
+        bot.add_listener(on_interaction, "on_interaction")
 
     async def on_ready(bot: commands.Bot) -> None:
         await service.recover_recent_messages(bot)
