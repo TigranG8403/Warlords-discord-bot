@@ -8,7 +8,11 @@ import os
 import sqlite3
 import unittest
 
+from tests import support  # noqa: F401
+
+from modules import DEFAULT_MODULES
 from deploy.migrate_legacy_state import (
+    ENABLED_MODULES,
     build_production_env,
     collect_update_user_ids,
     migrate_databases,
@@ -18,6 +22,9 @@ from deploy.migrate_legacy_state import (
 
 
 class LegacyEnvironmentMigrationTests(unittest.TestCase):
+    def test_production_module_allowlist_matches_supported_modules(self) -> None:
+        self.assertEqual(tuple(ENABLED_MODULES.split(",")), DEFAULT_MODULES)
+
     def test_old_moderation_settings_are_mapped_without_old_behavior(self) -> None:
         values = build_production_env(
             {

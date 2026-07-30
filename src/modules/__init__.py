@@ -14,6 +14,7 @@ DEFAULT_MODULES = (
     "roles",
     "kompromat",
     "presence",
+    "flytrap",
     "maintenance",
 )
 

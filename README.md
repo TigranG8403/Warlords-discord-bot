@@ -9,6 +9,7 @@
 - выдача ролей;
 - ручной архив компромата;
 - presence;
+- «Мухоловка» для спам-ботов;
 - безопасный запуск обновления из Discord.
 
 Старые DiscordAuth, AI-автоответчик, AI-модератор и веб-админка удалены.
@@ -71,6 +72,7 @@ cp src/.env.example src/.env
   команда `/bot update`. Права администратора сервера всё равно обязательны.
 
 Настройки тикетов и опубликованных панелей хранятся в SQLite, а не в `.env`.
+Мухоловка настраивается командами `/flytrap` и также хранит состояние в SQLite.
 
 ## AI-интеграция
 
@@ -112,7 +114,8 @@ python -m compileall -q src tests
 
 - `data/tickets.sqlite3`;
 - `data/kompromat.sqlite3`;
-- `data/panel_registry.sqlite3`.
+- `data/panel_registry.sqlite3`;
+- `data/flytrap.sqlite3`.
 
 `panel_registry.sqlite3` нужен обычным Discord-панелям и не относится к
 удалённой веб-админке.

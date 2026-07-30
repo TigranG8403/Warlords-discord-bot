@@ -18,7 +18,7 @@ ARCHIVE_ONLY_DATABASES = (
     "discordauth.sqlite3",
     "moderation.sqlite3",
 )
-ENABLED_MODULES = "tickets,welcome,rules,roles,kompromat,presence,maintenance"
+ENABLED_MODULES = "tickets,welcome,rules,roles,kompromat,presence,flytrap,maintenance"
 
 
 def read_env_file(path: Path) -> dict[str, str]:
