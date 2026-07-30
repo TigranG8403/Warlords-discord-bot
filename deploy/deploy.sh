@@ -8,6 +8,7 @@ readonly RELEASES_DIR="${APP_ROOT}/releases"
 readonly CURRENT_LINK="${APP_ROOT}/current"
 readonly DATA_DIR="${WARLORDS_BOT_DATA_DIR:-/var/lib/warlords-bot/data}"
 readonly REQUEST_FILE="/var/lib/warlords-bot/deploy.request"
+readonly READY_FILE="/run/warlords-bot/ready"
 readonly SERVICE_NAME="warlords-bot.service"
 readonly BOT_USER="warlords-bot"
 readonly BOT_GROUP="warlords-bot"
@@ -82,8 +83,19 @@ if ! systemctl restart "${SERVICE_NAME}"; then
     exit 5
 fi
 
-sleep 8
-if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+ready=false
+for _attempt in $(seq 1 60); do
+    if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+        break
+    fi
+    if [[ -s "${READY_FILE}" ]]; then
+        ready=true
+        break
+    fi
+    sleep 1
+done
+
+if [[ "${ready}" != "true" ]]; then
     if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
         ln -s "${previous_release}" "${next_link}"
         mv -Tf -- "${next_link}" "${CURRENT_LINK}"

@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from core.bootstrap import ModuleBootstrapper
 from core.discord_interactions import is_ignorable_interaction_error, safe_send_ephemeral
+from core.readiness import mark_ready_from_env
 from modules import get_modules
 
 
@@ -83,6 +84,7 @@ class WarlordsBot(commands.Bot):
 
     async def on_ready(self) -> None:
         await self.bootstrapper.dispatch_on_ready()
+        mark_ready_from_env()
         self.logger.info("Бот готов к работе.")
 
 

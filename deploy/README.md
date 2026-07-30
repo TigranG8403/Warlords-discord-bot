@@ -16,7 +16,8 @@
 Команды выполняются от `root`.
 
 ```bash
-useradd --system --home /var/lib/warlords-bot --shell /usr/sbin/nologin warlords-bot
+groupadd --system warlords-bot
+useradd --system --gid warlords-bot --home /var/lib/warlords-bot --shell /usr/sbin/nologin warlords-bot
 install -d -o root -g root -m 0755 /opt/warlords-bot-runtime
 install -d -o warlords-bot -g warlords-bot -m 0750 /var/lib/warlords-bot/data
 
@@ -42,6 +43,14 @@ systemctl daemon-reload
 systemctl start warlords-bot-deploy.service
 systemctl enable warlords-bot.service
 systemctl enable --now warlords-bot-deploy.path
+```
+
+Для одноразового перехода со старой установки `/opt/warlords-bot` вместо этих
+шагов используется migration runner. Он сохраняет units, конфигурацию и
+консистентные копии всех SQLite-баз, а при ошибке возвращает прежний сервис:
+
+```bash
+sudo deploy/migrate_legacy.sh v2
 ```
 
 ## Обновление

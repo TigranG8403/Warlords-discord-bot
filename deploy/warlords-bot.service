@@ -10,6 +10,8 @@ Group=warlords-bot
 WorkingDirectory=/opt/warlords-bot-runtime/current/source
 EnvironmentFile=/etc/warlords-bot.env
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=BOT_READY_FILE=/run/warlords-bot/ready
+ExecStartPre=/usr/bin/rm -f /run/warlords-bot/ready
 ExecStart=/opt/warlords-bot-runtime/current/venv/bin/python /opt/warlords-bot-runtime/current/source/src/bot.py
 Restart=on-failure
 RestartSec=5
@@ -17,16 +19,31 @@ TimeoutStopSec=20
 UMask=0027
 StateDirectory=warlords-bot
 StateDirectoryMode=0750
+RuntimeDirectory=warlords-bot
+RuntimeDirectoryMode=0750
+CPUWeight=200
+Nice=-3
+OOMScoreAdjust=-250
 
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=true
 ProtectSystem=strict
 ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
 RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
 ReadWritePaths=/var/lib/warlords-bot
 
 [Install]
