@@ -41,6 +41,9 @@ def _message(*, guild: MagicMock, member: MagicMock) -> MagicMock:
     message.attachments = []
     message.created_at = datetime.now(UTC)
     message.delete = AsyncMock()
+    warning = MagicMock(spec=discord.Message)
+    warning.edit = AsyncMock()
+    channel.fetch_message = AsyncMock(return_value=warning)
     return message
 
 
@@ -77,7 +80,10 @@ class FlytrapServiceTests(unittest.TestCase):
             guild.ban.assert_awaited_once()
             guild.unban.assert_awaited_once()
             log_channel.send.assert_awaited_once()
+            warning = message.channel.fetch_message.return_value
+            warning.edit.assert_awaited_once()
             self.assertEqual(repository.get_incident_status(message.id), "handled")
+            self.assertEqual(repository.get_config(10).moderated_count, 1)
 
     def test_administrator_is_not_punished(self) -> None:
         with TemporaryDirectory() as temp_dir:

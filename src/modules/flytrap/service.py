@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import discord
 from discord.ext import commands
 
+from .content import build_warning_embed
 from .models import FlytrapAction, FlytrapConfig
 from .repository import FlytrapRepository
 
@@ -115,6 +116,10 @@ class FlytrapService:
             )
             return
 
+        moderated_count = self.repository.finish_handled_incident(
+            message_id=message.id,
+            guild_id=guild.id,
+        )
         await self._send_log(
             guild=guild,
             config=config,
@@ -124,7 +129,11 @@ class FlytrapService:
             description=f"Применено действие: **{config.action.display_name}**.",
             color=0x6D1A1A,
         )
-        self.repository.finish_incident(message.id, status="handled")
+        await self._update_warning_message(
+            channel=message.channel,
+            config=config,
+            moderated_count=moderated_count,
+        )
 
     async def recover_recent_messages(self, bot: commands.Bot) -> None:
         removed_incidents = self.repository.purge_old_incidents()
@@ -140,6 +149,12 @@ class FlytrapService:
                     config.guild_id,
                 )
                 continue
+
+            await self._update_warning_message(
+                channel=channel,
+                config=config,
+                moderated_count=config.moderated_count,
+            )
 
             try:
                 messages = [
@@ -160,6 +175,32 @@ class FlytrapService:
 
             for message in reversed(messages):
                 await self.handle_message(message)
+
+    @staticmethod
+    async def _update_warning_message(
+        *,
+        channel: discord.abc.Messageable,
+        config: FlytrapConfig,
+        moderated_count: int,
+    ) -> None:
+        if not hasattr(channel, "fetch_message"):
+            return
+
+        try:
+            warning = await channel.fetch_message(config.warning_message_id)
+            await warning.edit(embed=build_warning_embed(moderated_count))
+        except discord.NotFound:
+            logger.warning(
+                "Предупреждение Мухоловки %s в канале %s не найдено.",
+                config.warning_message_id,
+                config.channel_id,
+            )
+        except (discord.Forbidden, discord.HTTPException) as error:
+            logger.warning(
+                "Не удалось обновить счётчик Мухоловки в канале %s: %s",
+                config.channel_id,
+                error,
+            )
 
     async def _apply_action(
         self,

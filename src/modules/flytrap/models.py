@@ -25,4 +25,4 @@ class FlytrapConfig:
     log_channel_id: int
     action: FlytrapAction
     warning_message_id: int
-
+    moderated_count: int = 0

@@ -23,9 +23,10 @@ class FlytrapRepository:
                     channel_id,
                     log_channel_id,
                     action,
-                    warning_message_id
+                    warning_message_id,
+                    moderated_count
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET
                     channel_id = excluded.channel_id,
                     log_channel_id = excluded.log_channel_id,
@@ -38,6 +39,7 @@ class FlytrapRepository:
                     config.log_channel_id,
                     config.action.value,
                     config.warning_message_id,
+                    config.moderated_count,
                 ),
             )
 
@@ -45,7 +47,13 @@ class FlytrapRepository:
         with self._connection() as connection:
             row = connection.execute(
                 """
-                SELECT guild_id, channel_id, log_channel_id, action, warning_message_id
+                SELECT
+                    guild_id,
+                    channel_id,
+                    log_channel_id,
+                    action,
+                    warning_message_id,
+                    moderated_count
                 FROM flytrap_configs
                 WHERE guild_id = ?
                 """,
@@ -57,7 +65,13 @@ class FlytrapRepository:
         with self._connection() as connection:
             row = connection.execute(
                 """
-                SELECT guild_id, channel_id, log_channel_id, action, warning_message_id
+                SELECT
+                    guild_id,
+                    channel_id,
+                    log_channel_id,
+                    action,
+                    warning_message_id,
+                    moderated_count
                 FROM flytrap_configs
                 WHERE channel_id = ?
                 """,
@@ -69,7 +83,13 @@ class FlytrapRepository:
         with self._connection() as connection:
             rows = connection.execute(
                 """
-                SELECT guild_id, channel_id, log_channel_id, action, warning_message_id
+                SELECT
+                    guild_id,
+                    channel_id,
+                    log_channel_id,
+                    action,
+                    warning_message_id,
+                    moderated_count
                 FROM flytrap_configs
                 ORDER BY guild_id
                 """
@@ -82,6 +102,38 @@ class FlytrapRepository:
                 "DELETE FROM flytrap_configs WHERE guild_id = ?",
                 (guild_id,),
             )
+
+    def finish_handled_incident(self, *, message_id: int, guild_id: int) -> int:
+        with self._connection() as connection:
+            incident_cursor = connection.execute(
+                """
+                UPDATE flytrap_incidents
+                SET status = 'handled', finished_at = ?
+                WHERE message_id = ? AND status = 'processing'
+                """,
+                (datetime.now(UTC).isoformat(), message_id),
+            )
+            if incident_cursor.rowcount != 1:
+                raise LookupError(f"Активный инцидент {message_id} не найден.")
+
+            config_cursor = connection.execute(
+                """
+                UPDATE flytrap_configs
+                SET moderated_count = moderated_count + 1
+                WHERE guild_id = ?
+                """,
+                (guild_id,),
+            )
+            if config_cursor.rowcount != 1:
+                raise LookupError(f"Конфигурация Мухоловки для сервера {guild_id} не найдена.")
+
+            row = connection.execute(
+                "SELECT moderated_count FROM flytrap_configs WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchone()
+        if row is None:  # pragma: no cover - guarded by the update above
+            raise LookupError(f"Счётчик Мухоловки для сервера {guild_id} не найден.")
+        return int(row["moderated_count"])
 
     def claim_incident(
         self,
@@ -154,7 +206,8 @@ class FlytrapRepository:
                     channel_id INTEGER NOT NULL UNIQUE,
                     log_channel_id INTEGER NOT NULL,
                     action TEXT NOT NULL,
-                    warning_message_id INTEGER NOT NULL
+                    warning_message_id INTEGER NOT NULL,
+                    moderated_count INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS flytrap_incidents (
@@ -173,6 +226,17 @@ class FlytrapRepository:
                     ON flytrap_incidents(created_at);
                 """
             )
+            config_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(flytrap_configs)").fetchall()
+            }
+            if "moderated_count" not in config_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE flytrap_configs
+                    ADD COLUMN moderated_count INTEGER NOT NULL DEFAULT 0
+                    """
+                )
 
     @staticmethod
     def _config_from_row(row: sqlite3.Row) -> FlytrapConfig:
@@ -182,6 +246,7 @@ class FlytrapRepository:
             log_channel_id=int(row["log_channel_id"]),
             action=FlytrapAction(row["action"]),
             warning_message_id=int(row["warning_message_id"]),
+            moderated_count=int(row["moderated_count"]),
         )
 
     @contextmanager
@@ -196,4 +261,3 @@ class FlytrapRepository:
             raise
         finally:
             connection.close()
-

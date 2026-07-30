@@ -10,6 +10,7 @@ from discord.ext import commands
 from core.discord_interactions import safe_defer, safe_followup_send
 from core.module import BotModule
 
+from .content import build_warning_embed
 from .models import FlytrapAction, FlytrapConfig
 from .repository import FlytrapRepository
 from .service import FlytrapService
@@ -19,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATABASE_PATH = PROJECT_ROOT / "data" / "flytrap.sqlite3"
-EMBED_COLOR = 0x6D1A1A
-
 ACTION_CHOICES = [
     app_commands.Choice(
         name="Softban: удалить недавний спам и разрешить вернуться",
@@ -35,21 +34,6 @@ ACTION_CHOICES = [
         value=FlytrapAction.BAN.value,
     ),
 ]
-
-
-def _build_warning_embed(action: FlytrapAction) -> discord.Embed:
-    embed = discord.Embed(
-        title="🪰 Мухоловка",
-        description=(
-            "Этот канал является автоматической ловушкой для спам-ботов.\n\n"
-            "**Не отправляйте сюда сообщения.** Любое сообщение будет удалено, "
-            "а к его автору автоматически применится настроенное действие."
-        ),
-        color=EMBED_COLOR,
-    )
-    embed.set_footer(text=f"Действие: {action.display_name}")
-    return embed
-
 
 def _missing_permissions(
     *,
@@ -167,9 +151,12 @@ def build_module() -> BotModule:
                 )
                 return
 
+            previous_config = repository.get_config(guild.id)
             try:
                 warning = await channel.send(
-                    embed=_build_warning_embed(selected_action),
+                    embed=build_warning_embed(
+                        previous_config.moderated_count if previous_config is not None else 0
+                    ),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
                 try:
@@ -184,13 +171,15 @@ def build_module() -> BotModule:
                 )
                 return
 
-            previous_config = repository.get_config(guild.id)
             config = FlytrapConfig(
                 guild_id=guild.id,
                 channel_id=channel.id,
                 log_channel_id=log_channel.id,
                 action=selected_action,
                 warning_message_id=warning.id,
+                moderated_count=(
+                    previous_config.moderated_count if previous_config is not None else 0
+                ),
             )
             repository.set_config(config)
             await _delete_warning(guild, previous_config)
@@ -234,7 +223,8 @@ def build_module() -> BotModule:
                     "## 🪰 Мухоловка включена\n"
                     f"Канал: {channel_label}\n"
                     f"Журнал: {log_label}\n"
-                    f"Действие: **{config.action.display_name}**"
+                    f"Действие: **{config.action.display_name}**\n"
+                    f"Поймано мух: **{config.moderated_count}**"
                 ),
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
@@ -284,4 +274,3 @@ def build_module() -> BotModule:
         register=register,
         on_ready=on_ready,
     )
-
