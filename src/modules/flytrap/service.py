@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import discord
 from discord.ext import commands
 
-from .content import build_warning_embed
+from .content import build_warning_view
 from .models import FlytrapAction, FlytrapConfig
 from .repository import FlytrapRepository
 
@@ -188,7 +188,12 @@ class FlytrapService:
 
         try:
             warning = await channel.fetch_message(config.warning_message_id)
-            await warning.edit(embed=build_warning_embed(moderated_count))
+            await warning.edit(
+                content=None,
+                embed=None,
+                attachments=[],
+                view=build_warning_view(moderated_count),
+            )
         except discord.NotFound:
             logger.warning(
                 "Предупреждение Мухоловки %s в канале %s не найдено.",

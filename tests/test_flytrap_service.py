@@ -82,6 +82,11 @@ class FlytrapServiceTests(unittest.TestCase):
             log_channel.send.assert_awaited_once()
             warning = message.channel.fetch_message.return_value
             warning.edit.assert_awaited_once()
+            edit_arguments = warning.edit.await_args.kwargs
+            self.assertIsNone(edit_arguments["content"])
+            self.assertIsNone(edit_arguments["embed"])
+            self.assertEqual(edit_arguments["attachments"], [])
+            self.assertIsInstance(edit_arguments["view"], discord.ui.LayoutView)
             self.assertEqual(repository.get_incident_status(message.id), "handled")
             self.assertEqual(repository.get_config(10).moderated_count, 1)
 

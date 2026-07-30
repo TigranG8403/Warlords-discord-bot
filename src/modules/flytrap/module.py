@@ -10,7 +10,7 @@ from discord.ext import commands
 from core.discord_interactions import safe_defer, safe_followup_send
 from core.module import BotModule
 
-from .content import build_warning_embed
+from .content import build_warning_view
 from .models import FlytrapAction, FlytrapConfig
 from .repository import FlytrapRepository
 from .service import FlytrapService
@@ -154,7 +154,7 @@ def build_module() -> BotModule:
             previous_config = repository.get_config(guild.id)
             try:
                 warning = await channel.send(
-                    embed=build_warning_embed(
+                    view=build_warning_view(
                         previous_config.moderated_count if previous_config is not None else 0
                     ),
                     allowed_mentions=discord.AllowedMentions.none(),
