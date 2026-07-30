@@ -1,35 +1,20 @@
 from __future__ import annotations
 
 import datetime as dt
-import unicodedata
 from pathlib import Path
 
 import discord
 
 from core.clock import get_moscow_time
 from core.time_of_day import pick_banner_asset_path
-from modules.tickets.banner import make_banner_file
 
-from .content import (
-    BANNER_FILENAME_TEMPLATE,
-    EMBED_COLOR,
-    build_embed_description,
-)
-from .copywriter import GreetingCopywriter
-
-
-GREETING_FONT_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "assets"
-    / "fonts"
-    / "cormorant-infant.ttf"
-)
+from .banner import make_greeting_banner_file
+from .content import BANNER_FILENAME_TEMPLATE, EMBED_COLOR, build_embed_description
 
 
 class GreetingsService:
-    def __init__(self, *, assets_dir: Path, copywriter: GreetingCopywriter) -> None:
+    def __init__(self, *, assets_dir: Path) -> None:
         self._assets_dir = assets_dir
-        self._copywriter = copywriter
 
     async def send_greeting(
         self,
@@ -39,27 +24,20 @@ class GreetingsService:
         current_time: dt.datetime | None = None,
     ) -> discord.Message:
         effective_time = current_time or get_moscow_time()
-        line = await self._copywriter.create_line(
-            member_id=member.id,
-            current_time=effective_time,
-        )
         filename = BANNER_FILENAME_TEMPLATE.format(member_id=member.id)
-        banner = make_banner_file(
+        banner = make_greeting_banner_file(
             asset_path=pick_banner_asset_path(
                 assets_dir=self._assets_dir,
                 stem="minecraft",
                 current_time=effective_time,
             ),
-            text=banner_name(member.display_name),
+            avatar_bytes=await _read_avatar(member),
+            display_name=member.display_name,
             filename=filename,
-            font_paths=(GREETING_FONT_PATH,),
-            font_weight=700,
         )
-
         embed = discord.Embed(
             description=build_embed_description(
                 member_mention=member.mention,
-                line=line,
             ),
             color=EMBED_COLOR,
         )
@@ -80,17 +58,8 @@ class GreetingsService:
         return await channel.send(**send_options)
 
 
-def banner_name(display_name: str) -> str:
-    normalized = " ".join(display_name.split())
-    clean = "".join(
-        character
-        for character in normalized
-        if unicodedata.category(character)[0] in {"L", "N"}
-        or character in " ._-'"
-    ).strip()
-    clean = " ".join(clean.split())
-    if not clean:
-        return "Новый участник"
-    if len(clean) <= 28:
-        return clean
-    return f"{clean[:27].rstrip()}…"
+async def _read_avatar(member: discord.Member) -> bytes | None:
+    try:
+        return await member.display_avatar.with_size(256).read()
+    except (discord.HTTPException, OSError):
+        return None

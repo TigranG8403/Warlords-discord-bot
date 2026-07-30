@@ -9,9 +9,7 @@ from discord.ext import commands
 
 from core.discord_interactions import safe_defer, safe_followup_send
 from core.module import BotModule
-from integrations.ai import AiClientConfig, OpenAiCompatibleClient
 
-from .copywriter import GreetingCopywriter
 from .models import GreetingsConfig
 from .repository import GreetingsRepository
 from .service import GreetingsService
@@ -21,25 +19,6 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATABASE_PATH = PROJECT_ROOT / "data" / "greetings.sqlite3"
 ASSETS_DIR = PROJECT_ROOT / "assets"
-
-
-def _build_ai_client() -> OpenAiCompatibleClient | None:
-    try:
-        config = AiClientConfig.from_env()
-    except (RuntimeError, ValueError) as error:
-        logger.error("AI для приветствий отключён из-за ошибки конфигурации: %s", error)
-        return None
-    if config is None:
-        return None
-
-    greeting_config = AiClientConfig(
-        base_url=config.base_url,
-        model=config.model,
-        api_key=config.api_key,
-        timeout_seconds=min(config.timeout_seconds, 6.0),
-        max_response_bytes=min(config.max_response_bytes, 100_000),
-    )
-    return OpenAiCompatibleClient(greeting_config)
 
 
 def _missing_permissions(channel: discord.TextChannel, bot_member: discord.Member) -> list[str]:
@@ -55,9 +34,7 @@ def _missing_permissions(channel: discord.TextChannel, bot_member: discord.Membe
 
 def build_module() -> BotModule:
     repository = GreetingsRepository(DATABASE_PATH)
-    ai_client = _build_ai_client()
-    copywriter = GreetingCopywriter(ai_client)
-    service = GreetingsService(assets_dir=ASSETS_DIR, copywriter=copywriter)
+    service = GreetingsService(assets_dir=ASSETS_DIR)
 
     def register(bot: commands.Bot) -> None:
         greetings_group = app_commands.Group(
@@ -185,9 +162,8 @@ def build_module() -> BotModule:
 
             channel = guild.get_channel(config.channel_id)
             channel_label = channel.mention if channel is not None else f"`{config.channel_id}` (не найден)"
-            ai_status = "включены" if ai_client is not None else "недоступны, используется fallback"
             await interaction.response.send_message(
-                f"## Приветствия включены\nКанал: {channel_label}\nAI-реплики: **{ai_status}**",
+                f"## Приветствия включены\nКанал: {channel_label}",
                 ephemeral=True,
             )
 
@@ -243,6 +219,6 @@ def build_module() -> BotModule:
 
     return BotModule(
         name="greetings",
-        description="Персональные приветствия новых участников с локальным баннером.",
+        description="Компактные приветствия новых участников.",
         register=register,
     )
