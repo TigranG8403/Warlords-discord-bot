@@ -24,7 +24,7 @@ def make_greeting_banner_file(
         return None
 
     try:
-        from PIL import Image, ImageDraw, ImageFont, ImageOps
+        from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
     except ModuleNotFoundError:
         logger.warning("Баннер приветствия не создан: Pillow не установлен.")
         return None
@@ -66,23 +66,33 @@ def make_greeting_banner_file(
     content_x = (image.width - content_width) / 2
     content_y = (image.height - content_height) / 2
 
-    padding_x = 32
-    padding_y = 24
-    panel_box = (
-        content_x - padding_x,
-        content_y - padding_y,
-        content_x + content_width + padding_x,
-        content_y + content_height + padding_y,
-    )
-    draw.rounded_rectangle(
-        panel_box,
-        radius=28,
-        fill=(15, 18, 22, 178),
-        outline=(255, 255, 255, 34),
-        width=2,
-    )
-
     text_x = content_x
+    shadow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow_layer, "RGBA")
+    if avatar is not None:
+        shadow_draw.ellipse(
+            (
+                content_x + 2,
+                content_y + 4,
+                content_x + avatar_size + 6,
+                content_y + avatar_size + 8,
+            ),
+            fill=(0, 0, 0, 175),
+        )
+        text_x += avatar_size + gap
+
+    text_y = content_y + (content_height - text_height) / 2 - text_box[1]
+    shadow_draw.text(
+        (text_x + 3, text_y + 4),
+        name,
+        font=font,
+        fill=(0, 0, 0, 220),
+        stroke_width=2,
+        stroke_fill=(0, 0, 0, 180),
+    )
+    image.alpha_composite(shadow_layer.filter(ImageFilter.GaussianBlur(radius=5)))
+    draw = ImageDraw.Draw(image, "RGBA")
+
     if avatar is not None:
         image.alpha_composite(avatar, (round(content_x), round(content_y)))
         draw.ellipse(
@@ -95,23 +105,14 @@ def make_greeting_banner_file(
             outline=(255, 255, 255, 105),
             width=3,
         )
-        text_x += avatar_size + gap
 
-    text_y = content_y + (content_height - text_height) / 2 - text_box[1]
-    draw.text(
-        (text_x + 3, text_y + 3),
-        name,
-        font=font,
-        fill=(0, 0, 0, 110),
-        stroke_width=0,
-    )
     draw.text(
         (text_x, text_y),
         name,
         font=font,
         fill=(244, 245, 247, 255),
         stroke_width=1,
-        stroke_fill=(0, 0, 0, 150),
+        stroke_fill=(0, 0, 0, 115),
     )
 
     output = BytesIO()
