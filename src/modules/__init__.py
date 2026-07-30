@@ -15,6 +15,7 @@ DEFAULT_MODULES = (
     "kompromat",
     "presence",
     "flytrap",
+    "greetings",
     "maintenance",
 )
 

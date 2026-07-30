@@ -32,7 +32,7 @@ install -o root -g root -m 0644 deploy/warlords-bot-deploy.path /etc/systemd/sys
 ```env
 DISCORD_TOKEN=
 APP_COMMAND_GUILD_ID=
-ENABLED_MODULES=tickets,welcome,rules,roles,kompromat,presence,flytrap,maintenance
+ENABLED_MODULES=tickets,welcome,rules,roles,kompromat,presence,flytrap,greetings,maintenance
 BOT_UPDATE_ALLOWED_USER_IDS=
 ```
 

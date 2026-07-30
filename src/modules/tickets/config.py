@@ -3,8 +3,12 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from core.clock import (
+    convert_to_moscow as convert_to_msk,
+    get_moscow_time as get_msk_time,
+    get_utc_time,
+)
 from core.time_of_day import pick_banner_asset_path
 
 
@@ -12,17 +16,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = (PROJECT_ROOT / "data").resolve()
 ASSETS_DIR = (PROJECT_ROOT / "assets").resolve()
 DEFAULT_TICKETS_DATABASE_PATH = (DATA_DIR / "tickets.sqlite3").resolve()
-UTC = datetime.timezone.utc
-
-
-def _build_msk_timezone() -> datetime.tzinfo:
-    try:
-        return ZoneInfo("Europe/Moscow")
-    except ZoneInfoNotFoundError:
-        return datetime.timezone(datetime.timedelta(hours=3))
-
-
-MSK_TIMEZONE = _build_msk_timezone()
 
 
 @dataclass(slots=True, frozen=True)
@@ -47,20 +40,6 @@ class TicketsSettings:
 
 def load_tickets_settings() -> TicketsSettings:
     return TicketsSettings()
-
-
-def get_msk_time() -> datetime.datetime:
-    return datetime.datetime.now(MSK_TIMEZONE)
-
-
-def get_utc_time() -> datetime.datetime:
-    return datetime.datetime.now(UTC)
-
-
-def convert_to_msk(utc_time: datetime.datetime) -> datetime.datetime:
-    if utc_time.tzinfo is None:
-        utc_time = utc_time.replace(tzinfo=UTC)
-    return utc_time.astimezone(MSK_TIMEZONE)
 
 
 def get_panel_banner_asset_path(current_time: datetime.datetime | None = None) -> Path | None:

@@ -16,6 +16,8 @@ def make_banner_file(
     asset_path: Path | None,
     text: str | None,
     filename: str,
+    font_paths: tuple[Path, ...] | None = None,
+    font_weight: int | None = None,
 ) -> discord.File | None:
     if asset_path is None:
         return None
@@ -35,7 +37,14 @@ def make_banner_file(
 
     if text:
         draw = ImageDraw.Draw(image)
-        font = _fit_banner_font(draw, text, image.width, image.height)
+        font = _fit_banner_font(
+            draw,
+            text,
+            image.width,
+            image.height,
+            font_paths=font_paths,
+            font_weight=font_weight,
+        )
         text_bbox = draw.textbbox((0, 0), text, font=font, stroke_width=2)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
@@ -64,10 +73,18 @@ def make_banner_file(
     return discord.File(output, filename=filename)
 
 
-def _fit_banner_font(draw, text: str, image_width: int, image_height: int):
+def _fit_banner_font(
+    draw,
+    text: str,
+    image_width: int,
+    image_height: int,
+    *,
+    font_paths: tuple[Path, ...] | None,
+    font_weight: int | None,
+):
     from PIL import ImageFont
 
-    font_candidates = _font_candidates()
+    font_candidates = font_paths or tuple(_font_candidates())
     max_width = int(image_width * 0.72)
     max_height = int(image_height * 0.34)
     start_size = max(52, image_width // 7)
@@ -79,6 +96,8 @@ def _fit_banner_font(draw, text: str, image_width: int, image_height: int):
         for font_size in range(start_size, 35, -4):
             try:
                 font = ImageFont.truetype(str(font_path), font_size)
+                if font_weight is not None:
+                    font.set_variation_by_axes([font_weight])
             except OSError:
                 continue
 
