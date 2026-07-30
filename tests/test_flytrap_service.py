@@ -90,6 +90,47 @@ class FlytrapServiceTests(unittest.TestCase):
             self.assertEqual(repository.get_incident_status(message.id), "handled")
             self.assertEqual(repository.get_config(10).moderated_count, 1)
 
+    def test_missing_warning_is_recreated(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            repository = FlytrapRepository(Path(temp_dir) / "flytrap.sqlite3")
+            config = FlytrapConfig(
+                guild_id=10,
+                channel_id=20,
+                log_channel_id=21,
+                action=FlytrapAction.SOFTBAN,
+                warning_message_id=1,
+                moderated_count=4,
+            )
+            repository.set_config(config)
+            service = FlytrapService(repository)
+
+            channel = MagicMock(spec=discord.TextChannel)
+            channel.fetch_message = AsyncMock(
+                side_effect=discord.NotFound(
+                    MagicMock(status=404, reason="Not Found"),
+                    {"code": 10008, "message": "Unknown Message"},
+                )
+            )
+            replacement = MagicMock(spec=discord.Message)
+            replacement.id = 50
+            replacement.pin = AsyncMock()
+            channel.send = AsyncMock(return_value=replacement)
+
+            asyncio.run(
+                service._update_warning_message(
+                    channel=channel,
+                    config=config,
+                    moderated_count=4,
+                )
+            )
+
+            channel.send.assert_awaited_once()
+            replacement.pin.assert_awaited_once()
+            updated_config = repository.get_config(10)
+            self.assertIsNotNone(updated_config)
+            self.assertEqual(updated_config.warning_message_id, 50)
+            self.assertEqual(updated_config.moderated_count, 4)
+
     def test_administrator_is_not_punished(self) -> None:
         with TemporaryDirectory() as temp_dir:
             repository = FlytrapRepository(Path(temp_dir) / "flytrap.sqlite3")

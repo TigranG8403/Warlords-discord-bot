@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import discord
@@ -176,8 +177,8 @@ class FlytrapService:
             for message in reversed(messages):
                 await self.handle_message(message)
 
-    @staticmethod
     async def _update_warning_message(
+        self,
         *,
         channel: discord.abc.Messageable,
         config: FlytrapConfig,
@@ -195,10 +196,10 @@ class FlytrapService:
                 view=build_warning_view(moderated_count),
             )
         except discord.NotFound:
-            logger.warning(
-                "Предупреждение Мухоловки %s в канале %s не найдено.",
-                config.warning_message_id,
-                config.channel_id,
+            await self._recreate_warning_message(
+                channel=channel,
+                config=config,
+                moderated_count=moderated_count,
             )
         except (discord.Forbidden, discord.HTTPException) as error:
             logger.warning(
@@ -206,6 +207,49 @@ class FlytrapService:
                 config.channel_id,
                 error,
             )
+
+    async def _recreate_warning_message(
+        self,
+        *,
+        channel: discord.abc.Messageable,
+        config: FlytrapConfig,
+        moderated_count: int,
+    ) -> None:
+        if not hasattr(channel, "send"):
+            return
+
+        try:
+            warning = await channel.send(
+                view=build_warning_view(moderated_count),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            try:
+                await warning.pin(reason="Восстановление панели Мухоловки")
+            except (discord.Forbidden, discord.HTTPException):
+                logger.warning(
+                    "Восстановленная панель Мухоловки не закреплена в канале %s.",
+                    config.channel_id,
+                )
+        except (discord.Forbidden, discord.HTTPException) as error:
+            logger.warning(
+                "Не удалось восстановить панель Мухоловки в канале %s: %s",
+                config.channel_id,
+                error,
+            )
+            return
+
+        self.repository.set_config(
+            replace(
+                config,
+                warning_message_id=warning.id,
+                moderated_count=moderated_count,
+            )
+        )
+        logger.info(
+            "Панель Мухоловки восстановлена в канале %s сообщением %s.",
+            config.channel_id,
+            warning.id,
+        )
 
     async def _apply_action(
         self,
