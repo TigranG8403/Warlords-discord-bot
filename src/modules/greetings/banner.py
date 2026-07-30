@@ -38,7 +38,7 @@ def make_greeting_banner_file(
 
     draw = ImageDraw.Draw(image, "RGBA")
     name = banner_name(display_name)
-    avatar_size = min(120, image.height // 3)
+    avatar_size = min(156, int(image.height * 0.34))
     avatar = (
         _prepare_avatar(
             Image=Image,
@@ -50,7 +50,7 @@ def make_greeting_banner_file(
         if avatar_bytes
         else None
     )
-    gap = 28 if avatar is not None else 0
+    gap = 36 if avatar is not None else 0
     font = _fit_font(
         ImageFont=ImageFont,
         draw=draw,
@@ -138,7 +138,7 @@ def banner_name(display_name: str) -> str:
 
 
 def _fit_font(*, ImageFont, draw, text: str, max_width: int, max_height: int):
-    for font_size in range(92, 35, -3):
+    for font_size in range(116, 41, -3):
         try:
             font = ImageFont.truetype(str(FONT_PATH), font_size)
         except OSError:
