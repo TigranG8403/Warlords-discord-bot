@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from io import BytesIO
 from pathlib import Path
+from typing import Callable
 import unicodedata
 
 import discord
@@ -11,6 +12,8 @@ import discord
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FONT_PATH = PROJECT_ROOT / "assets" / "fonts" / "noto-sans-semibold.ttf"
+DEFAULT_BANNER_NAME = "Новый участник"
+_MISSING_GLYPH_PROBE = "\u0378"
 
 
 def make_greeting_banner_file(
@@ -18,6 +21,7 @@ def make_greeting_banner_file(
     asset_path: Path | None,
     avatar_bytes: bytes | None,
     display_name: str,
+    fallback_name: str | None = None,
     filename: str,
 ) -> discord.File | None:
     if asset_path is None:
@@ -37,7 +41,17 @@ def make_greeting_banner_file(
         return None
 
     draw = ImageDraw.Draw(image, "RGBA")
-    name = banner_name(display_name)
+    coverage_font = _load_font(ImageFont=ImageFont, font_size=64)
+    supports_character = (
+        (lambda character: _font_supports_character(coverage_font, character))
+        if coverage_font is not None
+        else None
+    )
+    name = banner_name(
+        display_name,
+        fallback_name=fallback_name,
+        supports_character=supports_character,
+    )
     avatar_size = min(156, int(image.height * 0.34))
     avatar = (
         _prepare_avatar(
@@ -121,27 +135,58 @@ def make_greeting_banner_file(
     return discord.File(output, filename=filename)
 
 
-def banner_name(display_name: str) -> str:
-    normalized = " ".join(display_name.split())
-    clean = "".join(
-        character
-        for character in normalized
-        if unicodedata.category(character)[0] in {"L", "N"}
-        or character in " ._-'"
+def banner_name(
+    display_name: str,
+    *,
+    fallback_name: str | None = None,
+    supports_character: Callable[[str], bool] | None = None,
+) -> str:
+    for candidate in (display_name, fallback_name, DEFAULT_BANNER_NAME):
+        if not candidate:
+            continue
+
+        normalized = unicodedata.normalize("NFKC", candidate)
+        clean = "".join(
+            character
+            for character in normalized
+            if unicodedata.category(character)[0] in {"L", "N"}
+            or character in " ._-'"
+        )
+        if supports_character is not None:
+            clean = "".join(
+                character
+                for character in clean
+                if character.isspace() or supports_character(character)
+            )
+        clean = " ".join(clean.split()).strip()
+        if clean:
+            return clean if len(clean) <= 32 else f"{clean[:31].rstrip()}…"
+
+    return DEFAULT_BANNER_NAME
+
+
+def _load_font(*, ImageFont, font_size: int):
+    try:
+        return ImageFont.truetype(str(FONT_PATH), font_size)
+    except OSError:
+        return None
+
+
+def _font_supports_character(font, character: str) -> bool:
+    if character.isspace():
+        return True
+    missing_mask = font.getmask(_MISSING_GLYPH_PROBE, mode="L")
+    character_mask = font.getmask(character, mode="L")
+    return (character_mask.size, bytes(character_mask)) != (
+        missing_mask.size,
+        bytes(missing_mask),
     )
-    clean = " ".join(clean.split()).strip()
-    if not clean:
-        return "Новый участник"
-    if len(clean) <= 32:
-        return clean
-    return f"{clean[:31].rstrip()}…"
 
 
 def _fit_font(*, ImageFont, draw, text: str, max_width: int, max_height: int):
     for font_size in range(116, 41, -3):
-        try:
-            font = ImageFont.truetype(str(FONT_PATH), font_size)
-        except OSError:
+        font = _load_font(ImageFont=ImageFont, font_size=font_size)
+        if font is None:
             break
         box = draw.textbbox((0, 0), text, font=font, stroke_width=1)
         if box[2] - box[0] <= max_width and box[3] - box[1] <= max_height:

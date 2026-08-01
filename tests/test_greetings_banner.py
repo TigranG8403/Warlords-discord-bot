@@ -28,6 +28,7 @@ class GreetingsBannerTests(unittest.TestCase):
                 asset_path=background_path,
                 avatar_bytes=avatar_buffer.getvalue(),
                 display_name="Андрей Мессир",
+                fallback_name="messire",
                 filename="preview.png",
             )
 

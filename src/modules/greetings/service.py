@@ -33,11 +33,13 @@ class GreetingsService:
             ),
             avatar_bytes=await _read_avatar(member),
             display_name=member.display_name,
+            fallback_name=member.name,
             filename=filename,
         )
         embed = discord.Embed(
             description=build_embed_description(
-                member_mention=member.mention,
+                member_id=member.id,
+                display_name=member.display_name,
             ),
             color=EMBED_COLOR,
         )
@@ -46,12 +48,7 @@ class GreetingsService:
 
         send_options = {
             "embed": embed,
-            "allowed_mentions": discord.AllowedMentions(
-                everyone=False,
-                roles=False,
-                users=[member],
-                replied_user=False,
-            ),
+            "allowed_mentions": discord.AllowedMentions.none(),
         }
         if banner is not None:
             send_options["file"] = banner
